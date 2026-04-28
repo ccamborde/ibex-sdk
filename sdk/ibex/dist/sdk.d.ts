@@ -1,0 +1,38 @@
+import type { IbexRefreshDetails, IbexSdkConfig, IbexTokens, IbexUserProfile, JsonObject } from "./types";
+export declare const IBEX_TOKEN_KEY = "klarenfr_ibex_jwt";
+export declare const IBEX_REFRESH_TOKEN_KEY = "klarenfr_ibex_refresh_token";
+export declare const IBEX_EXTERNAL_USER_ID_KEY = "klarenfr_ibex_external_user_id";
+export declare const IBEX_SESSION_CHANGED_EVENT = "klarenfr_ibex_session_changed";
+export declare class IbexSdk {
+    private readonly apiBaseUrl;
+    private readonly storage;
+    private readonly fetchImpl;
+    private readonly blockchainId;
+    private readonly defaultHeaders;
+    private readonly resolveRpIdFn;
+    private readonly keyToken;
+    private readonly keyRefreshToken;
+    private readonly keyExternalUserId;
+    constructor(config: IbexSdkConfig);
+    resolveRpId(hostname?: string): string;
+    getStoredToken(): string | null;
+    getStoredRefreshToken(): string | null;
+    getStoredExternalUserId(): string | null;
+    setSession(tokens: IbexTokens, externalUserId?: string | null): void;
+    clearSessionAndScopedStorage(): void;
+    authenticateWithPasskey(): Promise<IbexTokens>;
+    refreshSession(): Promise<string>;
+    refreshSessionDetailed(): Promise<IbexRefreshDetails>;
+    withRefreshOnUnauthorized<T>(operation: (accessToken: string) => Promise<T>): Promise<T>;
+    getMe(): Promise<IbexUserProfile>;
+    updateMeData(data: JsonObject): Promise<IbexUserProfile>;
+    setAlertFlag(alertKey: string, enabled: boolean): Promise<IbexUserProfile>;
+    removeAlertFlag(alertKey: string): Promise<IbexUserProfile>;
+    private jsonFetch;
+    private jsonFetchWithMeta;
+    private authenticatedJsonFetch;
+    private withBlockchainHeader;
+    private buildUrl;
+    private dispatchSessionChanged;
+}
+export declare function createIbexSdk(config: IbexSdkConfig): IbexSdk;

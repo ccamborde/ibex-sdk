@@ -1,0 +1,12 @@
+import type { IbexTokens, IbexUserProfile, JsonObject } from "./types";
+export declare function defaultResolveRpId(hostname?: string): string;
+export declare function isAuthStatusError(error: unknown): boolean;
+export declare function toBase64Url(buffer: ArrayBuffer): string;
+export declare function fromBase64Url(input: string): ArrayBuffer;
+export declare function normalizeSignInOptions(payload: JsonObject): PublicKeyCredentialRequestOptions;
+export declare function normalizeSignUpOptions(payload: JsonObject): PublicKeyCredentialCreationOptions;
+export declare function serializeAssertion(credential: PublicKeyCredential): JsonObject;
+export declare function serializeAttestation(credential: PublicKeyCredential): JsonObject;
+export declare function extractAuthTokens(payload: unknown): IbexTokens | null;
+export declare function normalizeUsersMePayload(payload: unknown): IbexUserProfile;
+export declare function extractExternalUserId(profile: IbexUserProfile): string | null;

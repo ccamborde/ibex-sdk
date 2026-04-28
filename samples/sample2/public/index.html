@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IBEx.Fi Integration Widget</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="card">
+        <div class="header-row">
+          <h1>IBEx.Fi Widget</h1>
+          <span id="statusBadge" class="badge badge-offline">Disconnected</span>
+        </div>
+        <p class="muted">One-click passkey auth with IBEx proxy integration.</p>
+        <div class="rp-box">
+          <div><strong>Resolved rpId:</strong> <span id="rpIdValue" class="mono"></span></div>
+          <p id="rpWarning" class="rp-warning hidden">
+            localhost is not registered by default in IBEXSAFE: POST /users/me can fail with 400.
+          </p>
+        </div>
+        <button id="authBtn" class="btn btn-primary">Authenticate with Passkey</button>
+      </section>
+
+      <section id="profilePanel" class="card hidden">
+        <h2>Profile</h2>
+        <pre id="profileJson" class="panel-pre">{}</pre>
+        <form id="updateForm" class="inline-form">
+          <input id="keyInput" required placeholder="key" />
+          <input id="valueInput" placeholder="value (empty = delete)" />
+          <button type="submit" class="btn">Update / Delete Key</button>
+        </form>
+      </section>
+
+      <section id="sessionPanel" class="card hidden">
+        <h2>Session</h2>
+        <div class="session-grid">
+          <div>
+            <strong>externalUserId</strong>
+            <div id="externalUserId" class="mono"></div>
+          </div>
+          <div>
+            <strong>access token</strong>
+            <div id="accessToken" class="mono"></div>
+          </div>
+          <div>
+            <strong>refresh token</strong>
+            <div id="refreshToken" class="mono"></div>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="refreshBtn" class="btn">Refresh Token</button>
+          <button id="reloadBtn" class="btn">Reload Profile</button>
+          <button id="logoutBtn" class="btn btn-danger">Clear Session</button>
+        </div>
+        <h3>Scoped localStorage</h3>
+        <pre id="scopedCache" class="panel-pre">{}</pre>
+      </section>
+
+      <section class="card">
+        <h2>Event Log</h2>
+        <div id="logBox" class="log-box"></div>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

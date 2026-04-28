@@ -1,0 +1,313 @@
+# IBEx.Fi Integration Widget — Full AI Prompt
+
+> Give this document to any AI assistant to build a complete IBEx.Fi
+> passkey authentication demo widget. The AI chooses the tech stack.
+
+---
+
+## OBJECTIVE
+
+Build a self-contained web widget that demonstrates IBEx.Fi integration:
+
+1. **One-button passkey auth** — try sign-in, fall back to sign-up automatically
+2. **Profile display** — fetch and display user data from `/users/me`
+3. **Data update** — write arbitrary key/value pairs to `/users/me`
+4. **Token refresh** — keep JWT session alive without re-authentication
+5. **Scoped local storage** — cache user data with `${externalUserId}_${key}` prefix
+6. **Event log** — real-time display of all API calls, results, and errors
+
+---
+
+## IBEX API CONTRACT
+
+Base URL is configured via environment variable `IBEX_API_URL`.
+Example: `https://passkeys-testnet.ibex.fi`
+
+### Endpoints
+
+| Operation | Method | Path | Auth required |
+|-----------|--------|------|---------------|
+| Sign-in options | GET | `/v1.2/auth/sign-in?wallet=passkeys&rpId=<rpId>` | No |
+| Sign-in complete | POST | `/v1.2/auth/sign-in` | No |
+| Sign-up options | GET | `/v1.2/auth/sign-up?wallet=passkeys&rpId=<rpId>` | No |
+| Sign-up complete | POST | `/v1.2/auth/sign-up` | No |
+| Refresh token | POST | `/v1.2/auth/refresh` | No (uses refresh_token in body) |
+| Read user data | GET | `/v1.2/users/me` | Yes |
+| Write user data | POST | `/v1.2/users/me` | Yes |
+
+### Required Headers
+
+**All requests:**
+- `X-Rp-Id: <rpId>` — send both `X-Rp-Id` and `X-RpId` variants
+
+**Authenticated requests (`/users/me`):**
+- `Authorization: Bearer <access_token>`
+- `X-IBEx-Auth: Bearer <access_token>` — send BOTH headers
+
+**POST requests:**
+- `Content-Type: application/json`
+
+### rpId Resolution
+
+- `*.ibex.fi` or `ibex.fi` → `ibex.fi`
+- Any other domain → use hostname as-is
+- localhost → `localhost`
+
+---
+
+## AUTHENTICATION FLOW
+
+```
+authenticate():
+    rpId = resolveRpId(hostname)
+
+    // Step 1: Try sign-in (expected to fail for new users)
+    try:
+        opts = GET /v1.2/auth/sign-in?wallet=passkeys&rpId={rpId}
+        webauthnOpts = decodeBase64UrlFields(opts.credentialRequestOptions)
+        assertion = navigator.credentials.get({ publicKey: webauthnOpts })
+        result = POST /v1.2/auth/sign-in { credential: encodeAssertion(assertion) }
+        tokens = extractTokens(result)
+
+    // Step 2: Fallback to sign-up
+    if no tokens:
+        opts = GET /v1.2/auth/sign-up?wallet=passkeys&rpId={rpId}
+        webauthnOpts = decodeBase64UrlFields(opts.credentialRequestOptions)
+        attestation = navigator.credentials.create({ publicKey: webauthnOpts })
+        result = POST /v1.2/auth/sign-up { credential: encodeAttestation(attestation) }
+        tokens = extractTokens(result)
+
+    // Step 3: Store tokens — do NOT call /auth/refresh here
+    save(tokens.access_token, tokens.refresh_token)
+
+    // Step 4: Load profile immediately with the new token
+    profile = GET /v1.2/users/me (with auth headers)
+    save(profile.externalUserId)
+    for each (key, value) in profile.data:
+        localStorage[externalUserId + "_" + key] = value
+```
+
+---
+
+## WEBAUTHN DATA CONVERSION
+
+IBEx sends binary fields as **base64url strings**. Browser WebAuthn API requires **ArrayBuffer**.
+
+### Decode BEFORE calling WebAuthn (base64url → ArrayBuffer):
+
+**Sign-in:** `challenge`, `allowCredentials[].id`
+
+**Sign-up:** `challenge`, `user.id`, `excludeCredentials[].id`,
+`extensions.prf.eval.first`, `extensions.prf.eval.second`,
+`extensions.prf.evalByCredential.*` values
+
+### Encode AFTER WebAuthn returns (ArrayBuffer → base64url):
+
+**Assertion (sign-in):** `rawId`, `response.authenticatorData`,
+`response.clientDataJSON`, `response.signature`, `response.userHandle`
+
+**Attestation (sign-up):** `rawId`, `response.attestationObject`,
+`response.clientDataJSON`
+
+### base64url codec
+
+```
+encode: btoa(binary).replace('+','−').replace('/','_').replace(/=+$/,'')
+decode: atob(input.replace('−','+').replace('_','/') + padding)
+```
+
+---
+
+## API PAYLOADS
+
+### Sign-in options response
+
+```json
+{
+  "credentialRequestOptions": {
+    "challenge": "<base64url>",
+    "rpId": "<rpId>",
+    "timeout": 60000,
+    "userVerification": "required",
+    "allowCredentials": []
+  }
+}
+```
+
+### Sign-up options response
+
+```json
+{
+  "credentialRequestOptions": {
+    "challenge": "<base64url>",
+    "rp": { "id": "<rpId>", "name": "<rpId>" },
+    "user": { "id": "<base64url>", "name": "...", "displayName": "..." },
+    "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }],
+    "attestation": "none",
+    "excludeCredentials": [],
+    "timeout": 60000,
+    "extensions": {
+      "prf": { "eval": { "first": "<base64url>", "second": "<base64url>" } }
+    }
+  }
+}
+```
+
+### Sign-in/sign-up completion response (JWT)
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+### Refresh request body
+
+```json
+{ "refresh_token": "<current_refresh_token>" }
+```
+
+### GET /users/me response
+
+```json
+{
+  "externalUserId": "<uuid>",
+  "subject": "<uuid>",
+  "data": { "key": "value" }
+}
+```
+
+Note: user data may appear under `data`, `userdata`, or as flat root object. Normalize accordingly.
+User ID may appear as `externalUserId`, `subject`, `sub`, or `id`.
+
+### POST /users/me request body
+
+```json
+{ "data": { "key": "value" } }
+```
+
+To delete: `{ "data": { "key": null } }`
+
+---
+
+## SESSION MANAGEMENT
+
+### Storage keys
+
+- `access_token` — JWT for authenticated requests
+- `refresh_token` — JWT for session renewal
+- `external_user_id` — UUID from /users/me
+
+### Scoped data cache
+
+User data from `/users/me` is cached locally with prefix:
+`${externalUserId}_${key} = value`
+
+### Refresh strategy
+
+1. On 401/403 from any authenticated endpoint → `POST /v1.2/auth/refresh` once
+2. Retry original request with new token
+3. If refresh also fails → clear everything, require re-authentication
+4. **Never** refresh right after sign-in/sign-up — the token is already valid
+
+### Session cleanup
+
+Clear in this order:
+1. All entries matching `${externalUserId}_*`
+2. `access_token`, `refresh_token`, `external_user_id`
+
+---
+
+## CORS — PROXY REQUIRED
+
+Browser-to-IBEx requests are blocked by CORS (the `Authorization` header is rejected
+in the preflight response). Any implementation MUST include a server-side proxy:
+
+1. Browser calls local same-origin routes (e.g. `/api/ibex/*`)
+2. Proxy maps to upstream `/v1.2/*` paths and forwards the request server-side
+3. Browser sends `X-IBEx-Auth` → proxy adds/maps to `Authorization`
+4. No CORS issues since browser only talks to its own origin
+
+### Proxy route mapping
+
+| Local route | Upstream |
+|-------------|----------|
+| `GET /api/ibex/auth/sign-in/options` | `GET /v1.2/auth/sign-in` |
+| `POST /api/ibex/auth/sign-in/complete` | `POST /v1.2/auth/sign-in` |
+| `GET /api/ibex/auth/sign-up/options` | `GET /v1.2/auth/sign-up` |
+| `POST /api/ibex/auth/sign-up/complete` | `POST /v1.2/auth/sign-up` |
+| `POST /api/ibex/auth/refresh` | `POST /v1.2/auth/refresh` |
+| `GET /api/ibex/users/me` | `GET /v1.2/users/me` |
+| `POST /api/ibex/users/me` | `POST /v1.2/users/me` |
+
+### Proxy rules
+
+- Forward query strings to upstream
+- Forward `X-Rp-Id`, `X-RpId`, `Content-Type` headers
+- Convert `X-IBEx-Auth` to `Authorization` (send both to upstream)
+- Strip `content-encoding`, `content-length`, `transfer-encoding` from responses
+  (most HTTP clients auto-decompress; forwarding these headers causes decode errors)
+
+---
+
+## rpId REGISTRATION
+
+The rpId must be registered in **IBEXSAFE** for full functionality:
+
+| rpId status | Auth | GET /users/me | POST /users/me |
+|-------------|------|---------------|----------------|
+| Registered | ✅ | ✅ | ✅ |
+| Not registered (e.g. `localhost`) | ✅ | ✅ | ❌ 400 |
+
+---
+
+## UI REQUIREMENTS
+
+The widget should include these panels:
+
+1. **Auth panel** — "Authenticate with Passkey" button, connection status indicator
+2. **Profile panel** (visible after auth) — display raw `/users/me` JSON, key/value update form
+3. **Session panel** (visible after auth) — show truncated tokens, external user ID, refresh button, scoped localStorage entries
+4. **Event log** — scrollable log of all API interactions with timestamps
+
+### Design guidelines
+
+- Premium dark theme with modern aesthetics
+- Real-time status updates (connected/disconnected indicator)
+- Loading states on buttons during API calls
+- Error messages displayed in the event log
+- Responsive layout
+
+---
+
+## COMMON PITFALLS
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| CORS blocks requests | Direct browser-to-IBEx | Use server-side proxy |
+| `ERR_CONTENT_DECODING_FAILED` | Proxy forwards `content-encoding` but body is already decompressed | Strip encoding headers from proxied responses |
+| WebAuthn TypeError on extensions | PRF values are base64url strings, not ArrayBuffer | Decode all PRF values to ArrayBuffer before WebAuthn call |
+| 401 on `/users/me` after successful auth | Missing auth headers or wrong header name | Send both `Authorization` AND `X-IBEx-Auth` |
+| 400 `rpId is not valid` on POST `/users/me` | rpId not registered in IBEXSAFE | Register rpId or use a registered one |
+| Token appears valid but fails | `wallet=passkeys` query param missing from options request | Always include `?wallet=passkeys&rpId=<rpId>` |
+| Stale session on page reload | Old token in storage, no validation | On init, try GET `/users/me`; if 401, clear session |
+| Functions not accessible from HTML | ES module scope isolation | Use event listeners, not inline `onclick` |
+
+---
+
+## CHECKLIST
+
+- [ ] rpId resolves correctly from hostname
+- [ ] CORS proxy is set up for all `/v1.2/*` endpoints
+- [ ] Sign-in/sign-up options include `?wallet=passkeys&rpId=<rpId>`
+- [ ] Both `X-Rp-Id` and `X-RpId` headers sent on all requests
+- [ ] base64url ↔ ArrayBuffer conversion for all WebAuthn fields
+- [ ] PRF extension values decoded before `navigator.credentials.create()`
+- [ ] Both `Authorization` and `X-IBEx-Auth` sent for `/users/me`
+- [ ] No refresh after successful auth
+- [ ] 401/403 triggers one refresh attempt, then session clear
+- [ ] Scoped localStorage uses `${externalUserId}_` prefix
+- [ ] UI shows real-time event log of API interactions

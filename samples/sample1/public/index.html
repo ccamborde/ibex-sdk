@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IBEx.Fi — Passkey Auth Widget</title>
+  <meta name="description" content="IBEx.Fi Passkey Authentication Demo Widget — WebAuthn integration with JWT session management">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ─── Background Effects ─── -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--1"></div>
+  <div class="bg-glow bg-glow--2"></div>
+
+  <!-- ─── Header ─── -->
+  <header class="header">
+    <div class="header__brand">
+      <div class="header__logo">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect width="28" height="28" rx="6" fill="url(#logo-grad)"/>
+          <path d="M8 14h12M14 8v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+          <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
+            <stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/>
+          </linearGradient></defs>
+        </svg>
+      </div>
+      <span class="header__title">IBEx.Fi <span class="header__title--dim">Widget</span></span>
+    </div>
+    <div class="header__status">
+      <span id="statusDot" class="status-dot status-dot--disconnected"></span>
+      <span id="statusText" class="status-text">Disconnected</span>
+    </div>
+  </header>
+
+  <!-- ─── Main Content ─── -->
+  <main class="main">
+
+    <!-- ═══ Auth Panel ═══ -->
+    <section id="authPanel" class="card card--auth">
+      <div class="card__header">
+        <div class="card__icon card__icon--auth">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a5 5 0 015 5v3H7V7a5 5 0 015-5z"/><rect x="3" y="10" width="18" height="12" rx="2"/>
+            <circle cx="12" cy="16" r="1"/>
+          </svg>
+        </div>
+        <h2 class="card__title">Authentication</h2>
+      </div>
+      <p class="card__desc">One-click passkey authentication. Attempts sign-in first, falls back to sign-up automatically.</p>
+      <button id="btnAuth" class="btn btn--primary btn--full">
+        <span class="btn__icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
+          </svg>
+        </span>
+        <span class="btn__text">Authenticate with Passkey</span>
+        <span class="btn__loader"></span>
+      </button>
+    </section>
+
+    <!-- ═══ Connected Layout (hidden by default) ═══ -->
+    <div id="connectedPanels" class="panels" style="display:none">
+
+      <!-- ─── Profile Panel ─── -->
+      <section class="card card--profile">
+        <div class="card__header">
+          <div class="card__icon card__icon--profile">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <h2 class="card__title">User Profile</h2>
+          <button id="btnRefreshProfile" class="btn btn--ghost btn--sm" title="Reload profile">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+            </svg>
+          </button>
+        </div>
+        <div class="profile-grid">
+          <div class="profile-field">
+            <span class="profile-field__label">External User ID</span>
+            <code id="profileUserId" class="profile-field__value">—</code>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">User Data (raw JSON)</span>
+            <pre id="profileData" class="profile-field__json">{ }</pre>
+          </div>
+        </div>
+
+        <!-- Update form -->
+        <div class="update-form">
+          <h3 class="update-form__title">Update User Data</h3>
+          <div class="update-form__row">
+            <input id="inputKey" type="text" class="input" placeholder="key" autocomplete="off">
+            <input id="inputValue" type="text" class="input" placeholder="value  (empty = delete)" autocomplete="off">
+            <button id="btnUpdate" class="btn btn--accent btn--sm">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Session Panel ─── -->
+      <section class="card card--session">
+        <div class="card__header">
+          <div class="card__icon card__icon--session">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+          </div>
+          <h2 class="card__title">Session</h2>
+        </div>
+        <div class="session-grid">
+          <div class="session-field">
+            <span class="session-field__label">Access Token</span>
+            <code id="sessionAccess" class="session-field__value token-truncated">—</code>
+          </div>
+          <div class="session-field">
+            <span class="session-field__label">Refresh Token</span>
+            <code id="sessionRefresh" class="session-field__value token-truncated">—</code>
+          </div>
+          <div class="session-field">
+            <span class="session-field__label">Scoped localStorage</span>
+            <pre id="sessionStorage" class="session-field__json">{ }</pre>
+          </div>
+        </div>
+        <div class="session-actions">
+          <button id="btnRefreshToken" class="btn btn--outline btn--sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+            </svg>
+            Refresh Token
+          </button>
+          <button id="btnLogout" class="btn btn--danger btn--sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Logout
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══ Event Log ═══ -->
+    <section class="card card--log">
+      <div class="card__header">
+        <div class="card__icon card__icon--log">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+        </div>
+        <h2 class="card__title">Event Log</h2>
+        <button id="btnClearLog" class="btn btn--ghost btn--sm" title="Clear log">Clear</button>
+      </div>
+      <div id="eventLog" class="event-log">
+        <div class="event-log__empty">Waiting for activity…</div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
