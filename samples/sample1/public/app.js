@@ -341,6 +341,7 @@ async function loadProfile() {
     session.cacheData(data);
     renderProfile(userId, data);
     renderSession();
+    await loadMarketData();
     logInfo('✓ Profile loaded');
   } catch (e) {
     logInfo('✗ Failed to load profile');
@@ -407,6 +408,50 @@ function renderSession() {
   document.getElementById('sessionStorage').textContent = JSON.stringify(session.getScopedEntries(), null, 2);
 }
 
+function renderMarketData(resources) {
+  const {
+    balances,
+    transactions,
+    address,
+    signers,
+    tokens,
+    pools,
+    lending,
+  } = resources;
+  document.getElementById('balancesData').textContent = JSON.stringify(balances || {}, null, 2);
+  document.getElementById('transactionsData').textContent = JSON.stringify(transactions || {}, null, 2);
+  document.getElementById('addressData').textContent = JSON.stringify(address || {}, null, 2);
+  document.getElementById('signersData').textContent = JSON.stringify(signers || {}, null, 2);
+  document.getElementById('tokensData').textContent = JSON.stringify(tokens || {}, null, 2);
+  document.getElementById('poolsData').textContent = JSON.stringify(pools || {}, null, 2);
+  document.getElementById('lendingData').textContent = JSON.stringify(lending || {}, null, 2);
+}
+
+async function loadProtectedResource(path, { query = '', indexing404 = false } = {}) {
+  try {
+    return await authenticatedRequest('GET', path + query);
+  } catch (err) {
+    if (indexing404 && err?.status === 404) {
+      return { notice: 'Address not indexed yet, retry in a few seconds.', status: 404 };
+    }
+    return { error: `Failed to load ${path}`, status: err?.status || 0 };
+  }
+}
+
+async function loadMarketData() {
+  const paged = '?page=1&limit=20';
+  const resources = {
+    balances: await loadProtectedResource('/api/ibex/users/me/balances', { query: paged, indexing404: true }),
+    transactions: await loadProtectedResource('/api/ibex/users/me/transactions', { query: paged, indexing404: true }),
+    address: await loadProtectedResource('/api/ibex/users/me/address'),
+    signers: await loadProtectedResource('/api/ibex/users/me/signers'),
+    tokens: await loadProtectedResource('/api/ibex/users/me/tokens'),
+    pools: await loadProtectedResource('/api/ibex/users/me/pools', { query: paged, indexing404: true }),
+    lending: await loadProtectedResource('/api/ibex/users/me/lending', { query: paged }),
+  };
+  renderMarketData(resources);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // §11  Event Listeners
 // ═══════════════════════════════════════════════════════════════════════
@@ -418,6 +463,7 @@ document.getElementById('btnRefreshToken').addEventListener('click', async () =>
   if (!ok) logInfo('✗ Manual refresh failed');
 });
 document.getElementById('btnLogout').addEventListener('click', doLogout);
+document.getElementById('btnReloadMarket').addEventListener('click', loadMarketData);
 document.getElementById('btnClearLog').addEventListener('click', () => {
   logEl.innerHTML = '<div class="event-log__empty">Waiting for activity…</div>';
 });

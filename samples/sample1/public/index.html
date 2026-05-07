@@ -20,13 +20,7 @@
   <header class="header">
     <div class="header__brand">
       <div class="header__logo">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <rect width="28" height="28" rx="6" fill="url(#logo-grad)"/>
-          <path d="M8 14h12M14 8v12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-          <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
-            <stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/>
-          </linearGradient></defs>
-        </svg>
+        <img src="logo-IBEx.svg" alt="IBEx logo">
       </div>
       <span class="header__title">IBEx.Fi <span class="header__title--dim">Widget</span></span>
     </div>
@@ -139,6 +133,49 @@
             </svg>
             Logout
           </button>
+        </div>
+      </section>
+
+      <!-- ─── Markets Panel ─── -->
+      <section class="card card--profile">
+        <div class="card__header">
+          <div class="card__icon card__icon--log">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
+            </svg>
+          </div>
+          <h2 class="card__title">Users Me Resources</h2>
+          <button id="btnReloadMarket" class="btn btn--ghost btn--sm" title="Reload users/me resources">Reload</button>
+        </div>
+        <div class="profile-grid">
+          <div class="profile-field">
+            <span class="profile-field__label">Balances payload</span>
+            <pre id="balancesData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Transactions payload</span>
+            <pre id="transactionsData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Address payload</span>
+            <pre id="addressData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Signers payload</span>
+            <pre id="signersData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Tokens payload</span>
+            <pre id="tokensData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Pools payload</span>
+            <pre id="poolsData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Lending payload</span>
+            <pre id="lendingData" class="profile-field__json">{ }</pre>
+          </div>
         </div>
       </section>
     </div>

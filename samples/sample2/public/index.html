@@ -10,7 +10,10 @@
     <main class="layout">
       <section class="card">
         <div class="header-row">
-          <h1>IBEx.Fi Widget</h1>
+          <div class="header-brand">
+            <img src="/logo-IBEx.svg" alt="IBEx logo" class="header-brand__logo" />
+            <h1>IBEx.Fi Widget</h1>
+          </div>
           <span id="statusBadge" class="badge badge-offline">Disconnected</span>
         </div>
         <p class="muted">One-click passkey auth with IBEx proxy integration.</p>
@@ -56,6 +59,28 @@
         </div>
         <h3>Scoped localStorage</h3>
         <pre id="scopedCache" class="panel-pre">{}</pre>
+      </section>
+
+      <section id="marketPanel" class="card hidden">
+        <div class="header-row">
+          <h2>Users Me Resources</h2>
+          <button id="reloadMarketBtn" class="btn">Reload</button>
+        </div>
+        <p class="muted">Visual check for all `GET /users/me/*` resources.</p>
+        <h3>Balances payload</h3>
+        <pre id="balancesJson" class="panel-pre">{}</pre>
+        <h3>Transactions payload</h3>
+        <pre id="transactionsJson" class="panel-pre">{}</pre>
+        <h3>Address payload</h3>
+        <pre id="addressJson" class="panel-pre">{}</pre>
+        <h3>Signers payload</h3>
+        <pre id="signersJson" class="panel-pre">{}</pre>
+        <h3>Tokens payload</h3>
+        <pre id="tokensJson" class="panel-pre">{}</pre>
+        <h3>Pools payload</h3>
+        <pre id="poolsJson" class="panel-pre">{}</pre>
+        <h3>Lending payload</h3>
+        <pre id="lendingJson" class="panel-pre">{}</pre>
       </section>
 
       <section class="card">

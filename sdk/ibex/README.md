@@ -1,17 +1,26 @@
-# IBEx SDK (tmp/ibex)
+# IBEx SDK
 
-TypeScript SDK built from the real project integration:
+TypeScript SDK for IBEx Wallet API integrations.
 
-- passkey sign-in (`GET/POST /v1.2/auth/sign-in`)
-- sign-up fallback (`GET/POST /v1.2/auth/sign-up`)
-- token refresh (`POST /v1.2/auth/refresh`)
-- profile read/write (`GET/POST /v1.2/users/me`)
-- local session management + user-scoped storage cleanup
+Supported flows:
 
-## Local installation
+- Passkey sign-in (`GET/POST /v1.2/auth/sign-in`)
+- Sign-up fallback (`GET/POST /v1.2/auth/sign-up`)
+- JWT refresh (`POST /v1.2/auth/refresh`)
+- User profile read/write (`GET/POST /v1.2/users/me`)
+- User balances (`GET /v1.2/users/me/balances`)
+- User transactions (`GET /v1.2/users/me/transactions`)
+- User addresses (`GET /v1.2/users/me/address`)
+- User signers (`GET /v1.2/users/me/signers`)
+- User monitored tokens (`GET /v1.2/users/me/tokens`)
+- User liquidity pools (`GET /v1.2/users/me/pools`)
+- User lending positions (`GET /v1.2/users/me/lending`)
+- Local session management + external-user scoped storage cleanup
+
+## Local setup
 
 ```bash
-cd tmp/ibex
+cd sdk/ibex
 npm install
 npm run build
 ```
@@ -23,45 +32,71 @@ import { createIbexSdk } from "./src";
 
 const ibex = createIbexSdk({
   apiBaseUrl: "https://passkeys-testnet.ibex.fi",
-  // optional, depending on IBEx environment
-  blockchainId: "421614",
+  blockchainId: "421614", // optional
 });
 
-// 1) Passkey auth (sign-in, then sign-up fallback)
 await ibex.authenticateWithPasskey();
 
-// 2) Read /users/me
 const me = await ibex.getMe();
+const balances = await ibex.getMeBalances({ page: 1, limit: 20 });
+const transactions = await ibex.getMeTransactions({ page: 1, limit: 20 });
+const addresses = await ibex.getMeAddress();
+const signers = await ibex.getMeSigners();
+const tokens = await ibex.getMeTokens();
+const pools = await ibex.getMePools({ page: 1, limit: 20 });
+const lending = await ibex.getMeLending({ page: 1, limit: 20 });
 
-// 3) Write an application flag
 await ibex.updateMeData({
-  foo_993056795_alert: true,
+  "optin.newsletter": true,
 });
 ```
 
 ## Main API
 
 - `authenticateWithPasskey()`
-  - tries sign-in, then sign-up fallback
-  - stores `accessToken` + `refreshToken`
 - `getMe()`
-  - calls `/v1.2/users/me` with `X-IBEx-Auth` + `Authorization`
-  - automatic refresh/retry on 401/403
 - `updateMeData(data)`
-  - posts `{ data }` to `/v1.2/users/me`
+- `getMeBalances(query?)`
+- `getMeTransactions(query?)`
+- `getMeAddress()`
+- `getMeSigners()`
+- `getMeTokens()`
+- `getMePools(query?)`
+- `getMeLending(query?)`
 - `setAlertFlag(alertKey, enabled)` / `removeAlertFlag(alertKey)`
-- `refreshSession()`
-- `refreshSessionDetailed()`
+- `refreshSession()` / `refreshSessionDetailed()`
 - `clearSessionAndScopedStorage()`
 
-## Important notes
+`getMeBalances(query?)` accepts:
+- `walletAddress?: string`
+- `includeZero?: boolean`
+- `includePrices?: boolean`
+- `page?: number`
+- `limit?: number`
 
-- IBEXSAFE prerequisite: the app `rpId` must be created/registered in IBEXSAFE.
-  - Without this prerequisite, `GET /users/me` and `POST /users/me` may fail with `400` (`"rpId is not valid"`).
-  - Check this first if auth succeeds but `/users/me` fails.
-- RP ID is resolved dynamically (`ibex.fi` on IBEx domains, otherwise the exact current host).
-- WebAuthn Base64url <-> ArrayBuffer conversion is handled in `src/utils.ts`.
+`getMeTransactions(query?)` accepts:
+- `walletAddress?: string`
+- `page?: number`
+- `limit?: number`
+
+`getMePools(query?)` and `getMeLending(query?)` accept:
+- `walletAddress?: string`
+- `page?: number`
+- `limit?: number`
+
+All authenticated methods send both `Authorization: Bearer ...` and `X-IBEx-Auth: Bearer ...`, and automatically retry once after a refresh when the API returns `401` or `403`.
+
+## Test
+
+```bash
+cd sdk/ibex
+npm test
+```
+
+## Notes
+
+- IBEXSAFE prerequisite: your app `rpId` must exist in IBEXSAFE, or user endpoints may fail with `400` (`rpId is not valid`).
+- `GET /users/me/balances` and `GET /users/me/transactions` can return `404` while address indexing is still in progress. Retry after a short delay.
 - `/users/me` normalization:
-  - if upstream returns `userdata`, SDK exposes it as `data`.
-  - if upstream returns a flat object, SDK still forces a `data` field.
-- User localStorage keys are cleaned with prefix `${externalUserId}_` when the session expires.
+  - if upstream returns `userdata`, SDK exposes it as `data`
+  - if upstream returns a flat object, SDK still forces a `data` field

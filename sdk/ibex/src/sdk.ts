@@ -1,12 +1,22 @@
 import { browserStorage } from "./storage";
 import type {
+  IbexBalancesQuery,
   IbexHttpError,
   IbexHttpMeta,
   IbexRefreshDetails,
   IbexSdkConfig,
   IbexSdkStorage,
   IbexTokens,
+  IbexTransactionsQuery,
+  IbexUserAddressResponse,
+  IbexUserBalancesResponse,
+  IbexUserLendingResponse,
+  IbexUserPoolsResponse,
   IbexUserProfile,
+  IbexUserResourceQuery,
+  IbexUserSignersResponse,
+  IbexUserTokensResponse,
+  IbexUserTransactionsResponse,
   JsonObject,
 } from "./types";
 import {
@@ -238,6 +248,59 @@ export class IbexSdk {
     return this.updateMeData({ [alertKey]: null });
   }
 
+  async getMeBalances(query: IbexBalancesQuery = {}): Promise<IbexUserBalancesResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/balances", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserBalancesResponse;
+  }
+
+  async getMeTransactions(query: IbexTransactionsQuery = {}): Promise<IbexUserTransactionsResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/transactions", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserTransactionsResponse;
+  }
+
+  async getMeAddress(): Promise<IbexUserAddressResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/address", token, { method: "GET" }),
+    );
+    return payload as IbexUserAddressResponse;
+  }
+
+  async getMeSigners(): Promise<IbexUserSignersResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/signers", token, { method: "GET" }),
+    );
+    return payload as IbexUserSignersResponse;
+  }
+
+  async getMeTokens(): Promise<IbexUserTokensResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/tokens", token, { method: "GET" }),
+    );
+    return payload as IbexUserTokensResponse;
+  }
+
+  async getMePools(query: IbexUserResourceQuery = {}): Promise<IbexUserPoolsResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/pools", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserPoolsResponse;
+  }
+
+  async getMeLending(query: IbexUserResourceQuery = {}): Promise<IbexUserLendingResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/lending", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserLendingResponse;
+  }
+
   private async jsonFetch(path: string, options: JsonRequestOptions = {}): Promise<JsonObject> {
     const meta = await this.jsonFetchWithMeta(path, options);
     return meta.payload;
@@ -299,6 +362,16 @@ export class IbexSdk {
   private buildUrl(path: string): string {
     const normalized = path.startsWith("/") ? path : `/${path}`;
     return `${this.apiBaseUrl}${normalized}`;
+  }
+
+  private buildPathWithQuery(path: string, query: JsonObject): string {
+    const pairs = Object.entries(query).filter(([, value]) => value !== undefined && value !== null);
+    if (pairs.length === 0) return path;
+    const params = new URLSearchParams();
+    pairs.forEach(([key, value]) => {
+      params.set(key, String(value));
+    });
+    return `${path}?${params.toString()}`;
   }
 
   private dispatchSessionChanged(): void {

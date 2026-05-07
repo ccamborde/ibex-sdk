@@ -1,0 +1,17 @@
+# OS / editors
+.DS_Store
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+env/.env.local
+
+# Logs and test artifacts
+*.log
+coverage/
+.vitest/

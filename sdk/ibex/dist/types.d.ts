@@ -56,3 +56,100 @@ export type IbexHttpError = Error & {
     requestBody?: JsonObject;
     path?: string;
 };
+export type IbexBalancesQuery = {
+    walletAddress?: string;
+    includeZero?: boolean;
+    includePrices?: boolean;
+    page?: number;
+    limit?: number;
+};
+export type IbexTransactionsQuery = {
+    walletAddress?: string;
+    page?: number;
+    limit?: number;
+};
+export type IbexUserResourceQuery = {
+    walletAddress?: string;
+    page?: number;
+    limit?: number;
+};
+export type IbexBalanceToken = {
+    tokenAddress?: string;
+    symbol?: string;
+    name?: string;
+    decimals?: number;
+    balance?: string;
+    tokenType?: string;
+    price?: number;
+    value?: number;
+    price_usd?: number;
+    price_eur?: number;
+    value_usd?: string;
+    value_eur?: string;
+} & JsonObject;
+export type IbexBalancesBucket = {
+    tokens?: IbexBalanceToken[];
+    pending?: JsonObject[];
+    summary?: JsonObject;
+} & JsonObject;
+export type IbexUserBalancesResponse = {
+    type?: string;
+    identifier?: string;
+    timestamp?: string;
+    blockchainId?: string | number;
+    prices_available?: boolean;
+    balance?: IbexBalancesBucket;
+} & JsonObject;
+export type IbexTransaction = {
+    transactionHash?: string;
+    hash?: string;
+    valueFormatted?: string;
+    timestamp?: string | number;
+} & JsonObject;
+export type IbexUserTransactionsResponse = {
+    type?: string;
+    identifier?: string;
+    blockchainId?: string | number;
+    total?: number;
+    page?: number;
+    limit?: number;
+    totalPages?: number;
+    data?: IbexTransaction[];
+} & JsonObject;
+export type IbexUserAddressResponse = {
+    type?: string;
+    identifier?: string;
+    blockchainId?: string | number;
+    wallets?: JsonObject[];
+    chains?: JsonObject[];
+} & JsonObject;
+export type IbexUserSignersResponse = {
+    signers?: JsonObject[];
+} & JsonObject;
+export type IbexUserTokensResponse = {
+    type?: string;
+    identifier?: string;
+    blockchainId?: string | number;
+    data?: JsonObject[];
+    tokens?: JsonObject[];
+} & JsonObject;
+export type IbexUserPoolsResponse = {
+    type?: string;
+    identifier?: string;
+    blockchainId?: string | number;
+    total?: number;
+    page?: number;
+    limit?: number;
+    totalPages?: number;
+    data?: JsonObject[];
+} & JsonObject;
+export type IbexUserLendingResponse = {
+    type?: string;
+    identifier?: string;
+    blockchainId?: string | number;
+    total?: number;
+    page?: number;
+    limit?: number;
+    totalPages?: number;
+    data?: JsonObject[];
+} & JsonObject;

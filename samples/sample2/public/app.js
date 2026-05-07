@@ -6,6 +6,13 @@ const STORAGE_KEYS = {
 
 const state = {
   profile: null,
+  balances: null,
+  transactions: null,
+  address: null,
+  signers: null,
+  tokens: null,
+  pools: null,
+  lending: null,
   isRefreshing: false
 };
 
@@ -16,7 +23,15 @@ const el = {
   logoutBtn: document.querySelector("#logoutBtn"),
   profilePanel: document.querySelector("#profilePanel"),
   sessionPanel: document.querySelector("#sessionPanel"),
+  marketPanel: document.querySelector("#marketPanel"),
   profileJson: document.querySelector("#profileJson"),
+  balancesJson: document.querySelector("#balancesJson"),
+  transactionsJson: document.querySelector("#transactionsJson"),
+  addressJson: document.querySelector("#addressJson"),
+  signersJson: document.querySelector("#signersJson"),
+  tokensJson: document.querySelector("#tokensJson"),
+  poolsJson: document.querySelector("#poolsJson"),
+  lendingJson: document.querySelector("#lendingJson"),
   statusBadge: document.querySelector("#statusBadge"),
   rpIdValue: document.querySelector("#rpIdValue"),
   rpWarning: document.querySelector("#rpWarning"),
@@ -25,6 +40,7 @@ const el = {
   refreshToken: document.querySelector("#refreshToken"),
   scopedCache: document.querySelector("#scopedCache"),
   logBox: document.querySelector("#logBox"),
+  reloadMarketBtn: document.querySelector("#reloadMarketBtn"),
   updateForm: document.querySelector("#updateForm"),
   keyInput: document.querySelector("#keyInput"),
   valueInput: document.querySelector("#valueInput")
@@ -48,6 +64,7 @@ function setConnected(connected) {
   el.statusBadge.classList.toggle("badge-offline", !connected);
   el.profilePanel.classList.toggle("hidden", !connected);
   el.sessionPanel.classList.toggle("hidden", !connected);
+  el.marketPanel.classList.toggle("hidden", !connected);
 }
 
 function resolveRpId(hostname = window.location.hostname) {
@@ -262,6 +279,13 @@ function render() {
   el.rpIdValue.textContent = rpId;
   el.rpWarning.classList.toggle("hidden", rpId !== "localhost");
   el.profileJson.textContent = JSON.stringify(state.profile?.raw || {}, null, 2);
+  el.balancesJson.textContent = JSON.stringify(state.balances || {}, null, 2);
+  el.transactionsJson.textContent = JSON.stringify(state.transactions || {}, null, 2);
+  el.addressJson.textContent = JSON.stringify(state.address || {}, null, 2);
+  el.signersJson.textContent = JSON.stringify(state.signers || {}, null, 2);
+  el.tokensJson.textContent = JSON.stringify(state.tokens || {}, null, 2);
+  el.poolsJson.textContent = JSON.stringify(state.pools || {}, null, 2);
+  el.lendingJson.textContent = JSON.stringify(state.lending || {}, null, 2);
   el.externalUserId.textContent = getExternalUserId() || "—";
   el.accessToken.textContent = truncateToken(getAccessToken());
   el.refreshToken.textContent = truncateToken(getRefreshToken());
@@ -352,6 +376,65 @@ async function loadProfile() {
   render();
 }
 
+async function loadMarketData() {
+  const query = "?page=1&limit=20";
+  try {
+    state.balances = await apiFetch(`/api/ibex/users/me/balances${query}`, { auth: true });
+  } catch (error) {
+    if (error.status === 404) {
+      state.balances = { notice: "Address not indexed yet, retry in a few seconds.", status: 404 };
+    } else {
+      state.balances = { error: String(error), status: error.status || 0 };
+    }
+  }
+
+  try {
+    state.transactions = await apiFetch(`/api/ibex/users/me/transactions${query}`, { auth: true });
+  } catch (error) {
+    if (error.status === 404) {
+      state.transactions = { notice: "Address not indexed yet, retry in a few seconds.", status: 404 };
+    } else {
+      state.transactions = { error: String(error), status: error.status || 0 };
+    }
+  }
+
+  try {
+    state.address = await apiFetch("/api/ibex/users/me/address", { auth: true });
+  } catch (error) {
+    state.address = { error: String(error), status: error.status || 0 };
+  }
+
+  try {
+    state.signers = await apiFetch("/api/ibex/users/me/signers", { auth: true });
+  } catch (error) {
+    state.signers = { error: String(error), status: error.status || 0 };
+  }
+
+  try {
+    state.tokens = await apiFetch("/api/ibex/users/me/tokens", { auth: true });
+  } catch (error) {
+    state.tokens = { error: String(error), status: error.status || 0 };
+  }
+
+  try {
+    state.pools = await apiFetch(`/api/ibex/users/me/pools${query}`, { auth: true });
+  } catch (error) {
+    if (error.status === 404) {
+      state.pools = { notice: "Address not indexed yet, retry in a few seconds.", status: 404 };
+    } else {
+      state.pools = { error: String(error), status: error.status || 0 };
+    }
+  }
+
+  try {
+    state.lending = await apiFetch(`/api/ibex/users/me/lending${query}`, { auth: true });
+  } catch (error) {
+    state.lending = { error: String(error), status: error.status || 0 };
+  }
+
+  render();
+}
+
 async function authenticate() {
   const rpId = resolveRpId();
   const query = new URLSearchParams({ wallet: "passkeys", rpId }).toString();
@@ -397,6 +480,7 @@ async function authenticate() {
   // Do not refresh right after auth; the issued token is already valid.
   setSession(tokens, null);
   await loadProfile();
+  await loadMarketData();
 }
 
 async function validateSessionOnInit() {
@@ -404,6 +488,7 @@ async function validateSessionOnInit() {
   if (!accessToken) return;
   try {
     await loadProfile();
+    await loadMarketData();
     logEvent("Existing session restored");
   } catch (error) {
     logEvent("Stored session invalid, clearing", { error: String(error) }, "error");
@@ -469,6 +554,7 @@ el.reloadBtn.addEventListener("click", () =>
   withButtonLoading(el.reloadBtn, async () => {
     try {
       await loadProfile();
+      await loadMarketData();
       logEvent("Profile reloaded");
     } catch (error) {
       logEvent("Profile reload failed", { error: String(error) }, "error");
@@ -482,6 +568,12 @@ el.logoutBtn.addEventListener("click", () => {
 });
 
 el.updateForm.addEventListener("submit", onUpdateFormSubmit);
+el.reloadMarketBtn.addEventListener("click", () =>
+  withButtonLoading(el.reloadMarketBtn, async () => {
+    await loadMarketData();
+    logEvent("Market data reloaded");
+  })
+);
 
 render();
 logEvent("rpId resolved", { rpId: resolveRpId() });

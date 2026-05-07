@@ -117,6 +117,27 @@ app.get('/api/ibex/users/me', (req, res) =>
 app.post('/api/ibex/users/me', (req, res) =>
   proxyToIbex(req, res, { method: 'POST', upstreamPath: '/v1.2/users/me' })
 );
+app.get('/api/ibex/users/me/balances', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/balances' })
+);
+app.get('/api/ibex/users/me/transactions', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/transactions' })
+);
+app.get('/api/ibex/users/me/address', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/address' })
+);
+app.get('/api/ibex/users/me/signers', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/signers' })
+);
+app.get('/api/ibex/users/me/tokens', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/tokens' })
+);
+app.get('/api/ibex/users/me/pools', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/pools' })
+);
+app.get('/api/ibex/users/me/lending', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/lending' })
+);
 
 // ── SPA fallback ─────────────────────────────────────────────────────────
 app.get('*', (_req, res) => res.sendFile(join(__dirname, 'public', 'index.html')));

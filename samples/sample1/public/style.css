@@ -20,6 +20,7 @@ body{font-family:var(--font-sans);background:var(--bg-base);color:var(--text);mi
 .header{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:rgba(10,10,15,.8);backdrop-filter:blur(16px) saturate(1.6);border-bottom:1px solid var(--border)}
 .header__brand{display:flex;align-items:center;gap:10px}
 .header__logo{display:flex}
+.header__logo img{width:28px;height:28px;display:block}
 .header__title{font-weight:600;font-size:1.1rem;letter-spacing:-.02em}
 .header__title--dim{color:var(--text-dim);font-weight:400}
 .header__status{display:flex;align-items:center;gap:8px}

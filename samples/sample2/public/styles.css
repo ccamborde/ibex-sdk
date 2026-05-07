@@ -44,6 +44,22 @@ body {
   gap: 12px;
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-brand__logo {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+.header-brand h1 {
+  margin: 0;
+}
+
 h1, h2, h3 {
   margin: 0 0 12px;
 }

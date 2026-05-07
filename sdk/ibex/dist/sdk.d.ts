@@ -1,4 +1,4 @@
-import type { IbexRefreshDetails, IbexSdkConfig, IbexTokens, IbexUserProfile, JsonObject } from "./types";
+import type { IbexBalancesQuery, IbexRefreshDetails, IbexSdkConfig, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexUserLendingResponse, IbexUserPoolsResponse, IbexUserProfile, IbexUserResourceQuery, IbexUserSignersResponse, IbexUserTokensResponse, IbexUserTransactionsResponse, JsonObject } from "./types";
 export declare const IBEX_TOKEN_KEY = "klarenfr_ibex_jwt";
 export declare const IBEX_REFRESH_TOKEN_KEY = "klarenfr_ibex_refresh_token";
 export declare const IBEX_EXTERNAL_USER_ID_KEY = "klarenfr_ibex_external_user_id";
@@ -28,11 +28,19 @@ export declare class IbexSdk {
     updateMeData(data: JsonObject): Promise<IbexUserProfile>;
     setAlertFlag(alertKey: string, enabled: boolean): Promise<IbexUserProfile>;
     removeAlertFlag(alertKey: string): Promise<IbexUserProfile>;
+    getMeBalances(query?: IbexBalancesQuery): Promise<IbexUserBalancesResponse>;
+    getMeTransactions(query?: IbexTransactionsQuery): Promise<IbexUserTransactionsResponse>;
+    getMeAddress(): Promise<IbexUserAddressResponse>;
+    getMeSigners(): Promise<IbexUserSignersResponse>;
+    getMeTokens(): Promise<IbexUserTokensResponse>;
+    getMePools(query?: IbexUserResourceQuery): Promise<IbexUserPoolsResponse>;
+    getMeLending(query?: IbexUserResourceQuery): Promise<IbexUserLendingResponse>;
     private jsonFetch;
     private jsonFetchWithMeta;
     private authenticatedJsonFetch;
     private withBlockchainHeader;
     private buildUrl;
+    private buildPathWithQuery;
     private dispatchSessionChanged;
 }
 export declare function createIbexSdk(config: IbexSdkConfig): IbexSdk;

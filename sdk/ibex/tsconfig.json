@@ -9,5 +9,6 @@
     "skipLibCheck": true,
     "lib": ["DOM", "ES2022"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
