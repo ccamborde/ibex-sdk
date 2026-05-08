@@ -176,6 +176,47 @@
             <span class="profile-field__label">Lending payload</span>
             <pre id="lendingData" class="profile-field__json">{ }</pre>
           </div>
+          <div class="profile-field">
+            <span class="profile-field__label">Address book payload</span>
+            <pre id="addressBookData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">SEPA IBAN payload</span>
+            <pre id="sepaIbansData" class="profile-field__json">{ }</pre>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field__label">SEPA Transactions payload</span>
+            <pre id="sepaTransactionsData" class="profile-field__json">{ }</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card--profile">
+        <div class="card__header">
+          <div class="card__icon card__icon--auth">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a5 5 0 015 5v3H7V7a5 5 0 015-5z"/><rect x="3" y="10" width="18" height="12" rx="2"/>
+            </svg>
+          </div>
+          <h2 class="card__title">SEPA Payment (Intent + Confirm)</h2>
+        </div>
+        <p class="card__desc">Démo manuelle du flow en 2 étapes: POST intent puis PUT confirm via passkey.</p>
+        <div class="update-form__row">
+          <input id="sepaReference" type="text" class="input" placeholder="reference (ex: PAY-2026-001)" autocomplete="off">
+          <input id="sepaAmount" type="text" class="input" placeholder="amount (ex: 1.00)" autocomplete="off">
+          <button id="btnRunSepaPayment" class="btn btn--accent btn--sm">Run SEPA flow</button>
+        </div>
+        <div class="update-form__row">
+          <input id="sepaDebtorName" type="text" class="input" placeholder="debtor name" autocomplete="off">
+          <input id="sepaDebtorIban" type="text" class="input" placeholder="debtor iban" autocomplete="off">
+        </div>
+        <div class="update-form__row">
+          <input id="sepaCreditorName" type="text" class="input" placeholder="creditor name" autocomplete="off">
+          <input id="sepaCreditorIban" type="text" class="input" placeholder="creditor iban" autocomplete="off">
+        </div>
+        <div class="profile-field">
+          <span class="profile-field__label">SEPA Payment Result</span>
+          <pre id="sepaPaymentResult" class="profile-field__json">{ }</pre>
         </div>
       </section>
     </div>

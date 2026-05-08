@@ -9,6 +9,12 @@
  *   POST /api/ibex/auth/refresh            → POST /v1.2/auth/refresh
  *   GET  /api/ibex/users/me                → GET  /v1.2/users/me
  *   POST /api/ibex/users/me                → POST /v1.2/users/me
+ *   POST /api/ibex/sepa/iban/add           → POST /v1.2/sepa/iban/add
+ *   GET  /api/ibex/sepa/iban               → GET  /v1.2/sepa/iban
+ *   POST /api/ibex/sepa/payments           → POST /v1.2/sepa/payments
+ *   PUT  /api/ibex/sepa/payments           → PUT /v1.2/sepa/payments
+ *   GET  /api/ibex/sepa/transactions       → GET /v1.2/sepa/transactions
+ *   GET  /api/ibex/sepa/transactions/:id   → GET /v1.2/sepa/transactions/:id
  */
 
 import dotenv from 'dotenv';
@@ -137,6 +143,65 @@ app.get('/api/ibex/users/me/pools', (req, res) =>
 );
 app.get('/api/ibex/users/me/lending', (req, res) =>
   proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/lending' })
+);
+app.get('/api/ibex/users/me/addressbook', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/addressbook' })
+);
+app.post('/api/ibex/users/me/addressbook', (req, res) =>
+  proxyToIbex(req, res, { method: 'POST', upstreamPath: '/v1.2/users/me/addressbook' })
+);
+app.put('/api/ibex/users/me/addressbook/:id', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'PUT',
+    upstreamPath: `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}`,
+  })
+);
+app.delete('/api/ibex/users/me/addressbook/:id', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'DELETE',
+    upstreamPath: `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}`,
+  })
+);
+app.post('/api/ibex/users/me/addressbook/:id/crypto', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'POST',
+    upstreamPath: `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/crypto`,
+  })
+);
+app.delete('/api/ibex/users/me/addressbook/:id/crypto/:chainId/:address', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'DELETE',
+    upstreamPath: `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/crypto/${encodeURIComponent(req.params.chainId)}/${encodeURIComponent(req.params.address)}`,
+  })
+);
+app.delete('/api/ibex/users/me/addressbook/:id/ibans/:iban', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'DELETE',
+    upstreamPath: `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/ibans/${encodeURIComponent(req.params.iban)}`,
+  })
+);
+
+// SEPA
+app.post('/api/ibex/sepa/iban/add', (req, res) =>
+  proxyToIbex(req, res, { method: 'POST', upstreamPath: '/v1.2/sepa/iban/add' })
+);
+app.get('/api/ibex/sepa/iban', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/sepa/iban' })
+);
+app.post('/api/ibex/sepa/payments', (req, res) =>
+  proxyToIbex(req, res, { method: 'POST', upstreamPath: '/v1.2/sepa/payments' })
+);
+app.put('/api/ibex/sepa/payments', (req, res) =>
+  proxyToIbex(req, res, { method: 'PUT', upstreamPath: '/v1.2/sepa/payments' })
+);
+app.get('/api/ibex/sepa/transactions', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/sepa/transactions' })
+);
+app.get('/api/ibex/sepa/transactions/:id', (req, res) =>
+  proxyToIbex(req, res, {
+    method: 'GET',
+    upstreamPath: `/v1.2/sepa/transactions/${encodeURIComponent(req.params.id)}`,
+  })
 );
 
 // ── SPA fallback ─────────────────────────────────────────────────────────

@@ -23,7 +23,10 @@
             localhost is not registered by default in IBEXSAFE: POST /users/me can fail with 400.
           </p>
         </div>
-        <button id="authBtn" class="btn btn-primary">Authenticate with Passkey</button>
+        <div class="button-row">
+          <button id="authBtn" class="btn btn-primary">Authenticate with Passkey</button>
+          <button id="signupBtn" class="btn">Sign-up passkey only</button>
+        </div>
       </section>
 
       <section id="profilePanel" class="card hidden">
@@ -81,6 +84,28 @@
         <pre id="poolsJson" class="panel-pre">{}</pre>
         <h3>Lending payload</h3>
         <pre id="lendingJson" class="panel-pre">{}</pre>
+        <h3>Address book payload</h3>
+        <pre id="addressBookJson" class="panel-pre">{}</pre>
+        <h3>SEPA IBAN payload</h3>
+        <pre id="sepaIbansJson" class="panel-pre">{}</pre>
+        <h3>SEPA transactions payload</h3>
+        <pre id="sepaTransactionsJson" class="panel-pre">{}</pre>
+      </section>
+
+      <section id="sepaPanel" class="card hidden">
+        <h2>SEPA Payment (Intent + Confirm)</h2>
+        <p class="muted">Déclenche manuellement POST /sepa/payments puis PUT /sepa/payments avec passkey.</p>
+        <form id="sepaForm" class="inline-form">
+          <input id="sepaReferenceInput" placeholder="reference (PAY-2026-001)" />
+          <input id="sepaAmountInput" placeholder="amount (1.00)" />
+          <input id="sepaDebtorNameInput" placeholder="debtor name" />
+          <input id="sepaDebtorIbanInput" placeholder="debtor iban" />
+          <input id="sepaCreditorNameInput" placeholder="creditor name" />
+          <input id="sepaCreditorIbanInput" placeholder="creditor iban" />
+          <button type="submit" class="btn">Run SEPA flow</button>
+        </form>
+        <h3>SEPA payment result</h3>
+        <pre id="sepaPaymentJson" class="panel-pre">{}</pre>
       </section>
 
       <section class="card">

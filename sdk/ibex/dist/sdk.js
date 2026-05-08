@@ -231,6 +231,109 @@ export class IbexSdk {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
+    async getMeAddressBook() {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, { method: "GET" }));
+        return payload;
+    }
+    async createMeAddressBookEntry(input) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, {
+            method: "POST",
+            body: input,
+        }));
+        return payload;
+    }
+    async updateMeAddressBookEntry(id, input) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}`, token, {
+            method: "PUT",
+            body: input,
+        }));
+        return payload;
+    }
+    async deleteMeAddressBookEntry(id) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}`, token, { method: "DELETE" }));
+        return payload;
+    }
+    async addMeAddressBookCrypto(id, input) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}/crypto`, token, {
+            method: "POST",
+            body: input,
+        }));
+        return payload;
+    }
+    async deleteMeAddressBookCrypto(id, chainId, address) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}/crypto/${encodeURIComponent(String(chainId))}/${encodeURIComponent(address)}`, token, { method: "DELETE" }));
+        return payload;
+    }
+    async deleteMeAddressBookIban(id, iban) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}/ibans/${encodeURIComponent(iban)}`, token, { method: "DELETE" }));
+        return payload;
+    }
+    async addSepaIban(payload) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/iban/add", token, {
+            method: "POST",
+            body: payload,
+        }));
+        return response;
+    }
+    async getSepaIbans() {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/iban", token, { method: "GET" }));
+        return payload;
+    }
+    async createSepaPaymentIntent(payload) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/payments", token, {
+            method: "POST",
+            body: payload,
+        }));
+        return response;
+    }
+    async confirmSepaPayment(payload) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/payments", token, {
+            method: "PUT",
+            body: payload,
+        }));
+        return response;
+    }
+    async getSepaTransactions(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/sepa/transactions", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    async getSepaTransactionById(id) {
+        const normalizedId = encodeURIComponent(id);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/sepa/transactions/${normalizedId}`, token, { method: "GET" }));
+        return payload;
+    }
+    async createSepaMandate(payload) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/mandates", token, {
+            method: "POST",
+            body: payload,
+        }));
+        return response;
+    }
+    async getSepaMandates() {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/mandates", token, { method: "GET" }));
+        return payload;
+    }
+    async getSepaMandateById(id) {
+        const normalizedId = encodeURIComponent(id);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}`, token, { method: "GET" }));
+        return payload;
+    }
+    async updateSepaMandateStatus(id, payload) {
+        const normalizedId = encodeURIComponent(id);
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}/status`, token, {
+            method: "PATCH",
+            body: payload,
+        }));
+        return response;
+    }
+    async cancelSepaMandate(id) {
+        const normalizedId = encodeURIComponent(id);
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}/cancel`, token, {
+            method: "POST",
+        }));
+        return response;
+    }
     async jsonFetch(path, options = {}) {
         const meta = await this.jsonFetchWithMeta(path, options);
         return meta.payload;

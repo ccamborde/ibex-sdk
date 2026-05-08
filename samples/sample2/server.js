@@ -97,6 +97,35 @@ app.get("/api/ibex/users/me/signers", (req, res) => proxyIbex(req, res, "/v1.2/u
 app.get("/api/ibex/users/me/tokens", (req, res) => proxyIbex(req, res, "/v1.2/users/me/tokens"));
 app.get("/api/ibex/users/me/pools", (req, res) => proxyIbex(req, res, "/v1.2/users/me/pools"));
 app.get("/api/ibex/users/me/lending", (req, res) => proxyIbex(req, res, "/v1.2/users/me/lending"));
+app.get("/api/ibex/users/me/addressbook", (req, res) => proxyIbex(req, res, "/v1.2/users/me/addressbook"));
+app.post("/api/ibex/users/me/addressbook", (req, res) => proxyIbex(req, res, "/v1.2/users/me/addressbook"));
+app.put("/api/ibex/users/me/addressbook/:id", (req, res) =>
+  proxyIbex(req, res, `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}`)
+);
+app.delete("/api/ibex/users/me/addressbook/:id", (req, res) =>
+  proxyIbex(req, res, `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}`)
+);
+app.post("/api/ibex/users/me/addressbook/:id/crypto", (req, res) =>
+  proxyIbex(req, res, `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/crypto`)
+);
+app.delete("/api/ibex/users/me/addressbook/:id/crypto/:chainId/:address", (req, res) =>
+  proxyIbex(
+    req,
+    res,
+    `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/crypto/${encodeURIComponent(req.params.chainId)}/${encodeURIComponent(req.params.address)}`
+  )
+);
+app.delete("/api/ibex/users/me/addressbook/:id/ibans/:iban", (req, res) =>
+  proxyIbex(req, res, `/v1.2/users/me/addressbook/${encodeURIComponent(req.params.id)}/ibans/${encodeURIComponent(req.params.iban)}`)
+);
+app.post("/api/ibex/sepa/iban/add", (req, res) => proxyIbex(req, res, "/v1.2/sepa/iban/add"));
+app.get("/api/ibex/sepa/iban", (req, res) => proxyIbex(req, res, "/v1.2/sepa/iban"));
+app.post("/api/ibex/sepa/payments", (req, res) => proxyIbex(req, res, "/v1.2/sepa/payments"));
+app.put("/api/ibex/sepa/payments", (req, res) => proxyIbex(req, res, "/v1.2/sepa/payments"));
+app.get("/api/ibex/sepa/transactions", (req, res) => proxyIbex(req, res, "/v1.2/sepa/transactions"));
+app.get("/api/ibex/sepa/transactions/:id", (req, res) =>
+  proxyIbex(req, res, `/v1.2/sepa/transactions/${encodeURIComponent(req.params.id)}`)
+);
 
 function startServer(port) {
   const server = app.listen(port, () => {

@@ -364,6 +364,36 @@ async function doUpdateData() {
   }
 }
 
+async function loadSepaData() {
+  const paged = '?page=1&limit=20';
+  return {
+    ibans: await loadProtectedResource('/api/ibex/sepa/iban'),
+    transactions: await loadProtectedResource('/api/ibex/sepa/transactions', { query: paged }),
+  };
+}
+
+async function createSepaPaymentIntent(payload) {
+  return authenticatedRequest('POST', '/api/ibex/sepa/payments', payload);
+}
+
+async function confirmSepaPayment(approvalId, credential) {
+  return authenticatedRequest('PUT', '/api/ibex/sepa/payments', { approvalId, credential });
+}
+
+async function runSepaPaymentFlow(payload) {
+  const intentResponse = await createSepaPaymentIntent(payload);
+  const intent = intentResponse?.data || {};
+  if (!intent.approvalId || !intent.credentialRequestOptions) {
+    throw new Error('SEPA intent response is missing approval data');
+  }
+
+  const publicKey = decodeSignInOptions({ ...intent.credentialRequestOptions });
+  const assertion = await navigator.credentials.get({ publicKey });
+  if (!assertion) throw new Error('No WebAuthn assertion returned');
+
+  return confirmSepaPayment(intent.approvalId, encodeAssertion(assertion).credential);
+}
+
 function doLogout() {
   session.clear();
   setStatus('disconnected');
@@ -417,6 +447,9 @@ function renderMarketData(resources) {
     tokens,
     pools,
     lending,
+    addressBook,
+    sepaIbans,
+    sepaTransactions,
   } = resources;
   document.getElementById('balancesData').textContent = JSON.stringify(balances || {}, null, 2);
   document.getElementById('transactionsData').textContent = JSON.stringify(transactions || {}, null, 2);
@@ -425,6 +458,9 @@ function renderMarketData(resources) {
   document.getElementById('tokensData').textContent = JSON.stringify(tokens || {}, null, 2);
   document.getElementById('poolsData').textContent = JSON.stringify(pools || {}, null, 2);
   document.getElementById('lendingData').textContent = JSON.stringify(lending || {}, null, 2);
+  document.getElementById('addressBookData').textContent = JSON.stringify(addressBook || {}, null, 2);
+  document.getElementById('sepaIbansData').textContent = JSON.stringify(sepaIbans || {}, null, 2);
+  document.getElementById('sepaTransactionsData').textContent = JSON.stringify(sepaTransactions || {}, null, 2);
 }
 
 async function loadProtectedResource(path, { query = '', indexing404 = false } = {}) {
@@ -440,6 +476,7 @@ async function loadProtectedResource(path, { query = '', indexing404 = false } =
 
 async function loadMarketData() {
   const paged = '?page=1&limit=20';
+  const sepa = await loadSepaData();
   const resources = {
     balances: await loadProtectedResource('/api/ibex/users/me/balances', { query: paged, indexing404: true }),
     transactions: await loadProtectedResource('/api/ibex/users/me/transactions', { query: paged, indexing404: true }),
@@ -448,9 +485,55 @@ async function loadMarketData() {
     tokens: await loadProtectedResource('/api/ibex/users/me/tokens'),
     pools: await loadProtectedResource('/api/ibex/users/me/pools', { query: paged, indexing404: true }),
     lending: await loadProtectedResource('/api/ibex/users/me/lending', { query: paged }),
+    addressBook: await loadProtectedResource('/api/ibex/users/me/addressbook'),
+    sepaIbans: sepa.ibans,
+    sepaTransactions: sepa.transactions,
   };
   renderMarketData(resources);
 }
+
+function getSepaPaymentPayloadFromInputs() {
+  const reference = document.getElementById('sepaReference').value.trim() || `PAY-${Date.now()}`;
+  const amount = document.getElementById('sepaAmount').value.trim() || '1.00';
+  const debtorName = document.getElementById('sepaDebtorName').value.trim();
+  const debtorIban = document.getElementById('sepaDebtorIban').value.trim();
+  const creditorName = document.getElementById('sepaCreditorName').value.trim();
+  const creditorIban = document.getElementById('sepaCreditorIban').value.trim();
+  if (!debtorName || !debtorIban || !creditorName || !creditorIban) {
+    throw new Error('Please fill debtor/creditor names and IBANs');
+  }
+  return {
+    reference,
+    channel: 'SEPAINSTANT',
+    amount,
+    currency: 'EUR',
+    remittanceInfo: reference,
+    debtor: { name: debtorName, iban: debtorIban },
+    creditor: { name: creditorName, iban: creditorIban },
+  };
+}
+
+async function onRunSepaPayment() {
+  const resultEl = document.getElementById('sepaPaymentResult');
+  resultEl.textContent = JSON.stringify({ status: 'running' }, null, 2);
+  try {
+    const payload = getSepaPaymentPayloadFromInputs();
+    const result = await runSepaPaymentFlow(payload);
+    resultEl.textContent = JSON.stringify(result || {}, null, 2);
+    logInfo('✓ SEPA payment intent/confirm flow succeeded');
+    await loadMarketData();
+  } catch (error) {
+    resultEl.textContent = JSON.stringify({ error: String(error) }, null, 2);
+    logInfo(`✗ SEPA flow failed: ${String(error)}`);
+  }
+}
+
+window.ibexSepa = {
+  loadSepaData,
+  createSepaPaymentIntent,
+  confirmSepaPayment,
+  runSepaPaymentFlow,
+};
 
 // ═══════════════════════════════════════════════════════════════════════
 // §11  Event Listeners
@@ -464,6 +547,7 @@ document.getElementById('btnRefreshToken').addEventListener('click', async () =>
 });
 document.getElementById('btnLogout').addEventListener('click', doLogout);
 document.getElementById('btnReloadMarket').addEventListener('click', loadMarketData);
+document.getElementById('btnRunSepaPayment').addEventListener('click', onRunSepaPayment);
 document.getElementById('btnClearLog').addEventListener('click', () => {
   logEl.innerHTML = '<div class="event-log__empty">Waiting for activity…</div>';
 });

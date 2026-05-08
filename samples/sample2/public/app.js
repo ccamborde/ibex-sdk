@@ -13,11 +13,15 @@ const state = {
   tokens: null,
   pools: null,
   lending: null,
+  addressBook: null,
+  sepaIbans: null,
+  sepaTransactions: null,
   isRefreshing: false
 };
 
 const el = {
   authBtn: document.querySelector("#authBtn"),
+  signupBtn: document.querySelector("#signupBtn"),
   refreshBtn: document.querySelector("#refreshBtn"),
   reloadBtn: document.querySelector("#reloadBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
@@ -32,6 +36,18 @@ const el = {
   tokensJson: document.querySelector("#tokensJson"),
   poolsJson: document.querySelector("#poolsJson"),
   lendingJson: document.querySelector("#lendingJson"),
+  addressBookJson: document.querySelector("#addressBookJson"),
+  sepaIbansJson: document.querySelector("#sepaIbansJson"),
+  sepaTransactionsJson: document.querySelector("#sepaTransactionsJson"),
+  sepaPanel: document.querySelector("#sepaPanel"),
+  sepaForm: document.querySelector("#sepaForm"),
+  sepaReferenceInput: document.querySelector("#sepaReferenceInput"),
+  sepaAmountInput: document.querySelector("#sepaAmountInput"),
+  sepaDebtorNameInput: document.querySelector("#sepaDebtorNameInput"),
+  sepaDebtorIbanInput: document.querySelector("#sepaDebtorIbanInput"),
+  sepaCreditorNameInput: document.querySelector("#sepaCreditorNameInput"),
+  sepaCreditorIbanInput: document.querySelector("#sepaCreditorIbanInput"),
+  sepaPaymentJson: document.querySelector("#sepaPaymentJson"),
   statusBadge: document.querySelector("#statusBadge"),
   rpIdValue: document.querySelector("#rpIdValue"),
   rpWarning: document.querySelector("#rpWarning"),
@@ -65,6 +81,7 @@ function setConnected(connected) {
   el.profilePanel.classList.toggle("hidden", !connected);
   el.sessionPanel.classList.toggle("hidden", !connected);
   el.marketPanel.classList.toggle("hidden", !connected);
+  if (el.sepaPanel) el.sepaPanel.classList.toggle("hidden", !connected);
 }
 
 function resolveRpId(hostname = window.location.hostname) {
@@ -72,6 +89,22 @@ function resolveRpId(hostname = window.location.hostname) {
   if (!host || host === "localhost") return "localhost";
   if (host === "ibex.fi" || host.endsWith(".ibex.fi")) return "ibex.fi";
   return host;
+}
+
+function isNotAllowedError(error) {
+  const msg = String(error?.name || "") + " " + String(error?.message || "");
+  return msg.includes("NotAllowedError");
+}
+
+function authGuidanceMessage(prefix, rpId, error) {
+  const details = error?.status ? ` (HTTP ${error.status})` : "";
+  if (isNotAllowedError(error)) {
+    return `${prefix}: WebAuthn a été refusé/timeout.${details} Vérifie la présence utilisateur (FaceID/TouchID), puis retente.`;
+  }
+  if (error?.status === 401) {
+    return `${prefix}: passkey introuvable côté IBEX pour rpId=${rpId}.${details} Lance "Sign-up passkey only" pour réenregistrer une passkey.`;
+  }
+  return `${prefix}: ${String(error)}`;
 }
 
 function toBase64Url(buffer) {
@@ -280,12 +313,23 @@ function render() {
   el.rpWarning.classList.toggle("hidden", rpId !== "localhost");
   el.profileJson.textContent = JSON.stringify(state.profile?.raw || {}, null, 2);
   el.balancesJson.textContent = JSON.stringify(state.balances || {}, null, 2);
-  el.transactionsJson.textContent = JSON.stringify(state.transactions || {}, null, 2);
-  el.addressJson.textContent = JSON.stringify(state.address || {}, null, 2);
+  el.transactionsJson.textContent = JSON.stringify(
+    { usersMe: state.transactions || {}, sepa: state.sepaTransactions || {} },
+    null,
+    2
+  );
+  el.addressJson.textContent = JSON.stringify(
+    { usersMe: state.address || {}, sepaIbans: state.sepaIbans || {} },
+    null,
+    2
+  );
   el.signersJson.textContent = JSON.stringify(state.signers || {}, null, 2);
   el.tokensJson.textContent = JSON.stringify(state.tokens || {}, null, 2);
   el.poolsJson.textContent = JSON.stringify(state.pools || {}, null, 2);
   el.lendingJson.textContent = JSON.stringify(state.lending || {}, null, 2);
+  if (el.addressBookJson) el.addressBookJson.textContent = JSON.stringify(state.addressBook || {}, null, 2);
+  if (el.sepaIbansJson) el.sepaIbansJson.textContent = JSON.stringify(state.sepaIbans || {}, null, 2);
+  if (el.sepaTransactionsJson) el.sepaTransactionsJson.textContent = JSON.stringify(state.sepaTransactions || {}, null, 2);
   el.externalUserId.textContent = getExternalUserId() || "—";
   el.accessToken.textContent = truncateToken(getAccessToken());
   el.refreshToken.textContent = truncateToken(getRefreshToken());
@@ -432,7 +476,91 @@ async function loadMarketData() {
     state.lending = { error: String(error), status: error.status || 0 };
   }
 
+  try {
+    state.addressBook = await apiFetch("/api/ibex/users/me/addressbook", { auth: true });
+  } catch (error) {
+    state.addressBook = { error: String(error), status: error.status || 0 };
+  }
+
+  try {
+    state.sepaIbans = await apiFetch("/api/ibex/sepa/iban", { auth: true });
+  } catch (error) {
+    state.sepaIbans = { error: String(error), status: error.status || 0 };
+  }
+
+  try {
+    state.sepaTransactions = await apiFetch(`/api/ibex/sepa/transactions${query}`, { auth: true });
+  } catch (error) {
+    state.sepaTransactions = { error: String(error), status: error.status || 0 };
+  }
+
   render();
+}
+
+async function createSepaPaymentIntent(payload) {
+  return apiFetch("/api/ibex/sepa/payments", {
+    method: "POST",
+    auth: true,
+    body: payload
+  });
+}
+
+async function confirmSepaPayment(approvalId, credential) {
+  return apiFetch("/api/ibex/sepa/payments", {
+    method: "PUT",
+    auth: true,
+    body: { approvalId, credential }
+  });
+}
+
+async function runSepaPaymentFlow(payload) {
+  const intentResponse = await createSepaPaymentIntent(payload);
+  const intent = intentResponse?.data || {};
+  if (!intent.approvalId || !intent.credentialRequestOptions) {
+    throw new Error("SEPA intent response is missing approval data");
+  }
+
+  const publicKey = normalizeSignInOptions({ credentialRequestOptions: intent.credentialRequestOptions });
+  const assertion = await navigator.credentials.get({ publicKey });
+  if (!assertion) throw new Error("No assertion returned by WebAuthn");
+
+  return confirmSepaPayment(intent.approvalId, serializeAssertion(assertion));
+}
+
+function buildSepaPayloadFromForm() {
+  const reference = (el.sepaReferenceInput?.value || "").trim() || `PAY-${Date.now()}`;
+  const amount = (el.sepaAmountInput?.value || "").trim() || "1.00";
+  const debtorName = (el.sepaDebtorNameInput?.value || "").trim();
+  const debtorIban = (el.sepaDebtorIbanInput?.value || "").trim();
+  const creditorName = (el.sepaCreditorNameInput?.value || "").trim();
+  const creditorIban = (el.sepaCreditorIbanInput?.value || "").trim();
+  if (!debtorName || !debtorIban || !creditorName || !creditorIban) {
+    throw new Error("Please fill debtor/creditor names and IBANs");
+  }
+  return {
+    reference,
+    channel: "SEPAINSTANT",
+    amount,
+    currency: "EUR",
+    remittanceInfo: reference,
+    debtor: { name: debtorName, iban: debtorIban },
+    creditor: { name: creditorName, iban: creditorIban }
+  };
+}
+
+async function onSepaFormSubmit(event) {
+  event.preventDefault();
+  if (el.sepaPaymentJson) el.sepaPaymentJson.textContent = JSON.stringify({ status: "running" }, null, 2);
+  try {
+    const payload = buildSepaPayloadFromForm();
+    const result = await runSepaPaymentFlow(payload);
+    if (el.sepaPaymentJson) el.sepaPaymentJson.textContent = JSON.stringify(result || {}, null, 2);
+    logEvent("SEPA payment flow succeeded");
+    await loadMarketData();
+  } catch (error) {
+    if (el.sepaPaymentJson) el.sepaPaymentJson.textContent = JSON.stringify({ error: String(error) }, null, 2);
+    logEvent("SEPA payment flow failed", { error: String(error) }, "error");
+  }
 }
 
 async function authenticate() {
@@ -456,31 +584,53 @@ async function authenticate() {
     tokens = extractTokens(signInPayload);
     logEvent("Sign-in succeeded");
   } catch (error) {
-    logEvent("Sign-in failed, fallback to sign-up", { error: String(error) }, "error");
+    logEvent("Sign-in failed, fallback to sign-up", {
+      error: String(error),
+      rpId,
+      hint: authGuidanceMessage("Sign-in", rpId, error)
+    }, "error");
   }
 
   if (!tokens) {
-    const signUpOptionsPayload = await apiFetch(`/api/ibex/auth/sign-up/options?${query}`, {
-      method: "GET",
-      retryOnAuth: false
-    });
-    const publicKey = normalizeSignUpOptions(signUpOptionsPayload);
-    const attestation = await navigator.credentials.create({ publicKey });
-    if (!attestation) throw new Error("No attestation returned by WebAuthn");
-    const signUpPayload = await apiFetch("/api/ibex/auth/sign-up/complete", {
-      method: "POST",
-      body: { credential: serializeAttestation(attestation) },
-      retryOnAuth: false
-    });
-    tokens = extractTokens(signUpPayload);
-    if (!tokens) throw new Error("Missing tokens after sign-up");
-    logEvent("Sign-up succeeded");
+    try {
+      tokens = await signUpOnly(query, rpId);
+    } catch (error) {
+      logEvent("Sign-up failed after sign-in fallback", {
+        error: String(error),
+        rpId,
+        hint: authGuidanceMessage("Sign-up", rpId, error)
+      }, "error");
+      throw error;
+    }
   }
 
   // Do not refresh right after auth; the issued token is already valid.
   setSession(tokens, null);
   await loadProfile();
   await loadMarketData();
+}
+
+async function signUpOnly(query = null, rpId = resolveRpId()) {
+  const effectiveQuery = query || new URLSearchParams({ wallet: "passkeys", rpId }).toString();
+  const signUpOptionsPayload = await apiFetch(`/api/ibex/auth/sign-up/options?${effectiveQuery}`, {
+    method: "GET",
+    retryOnAuth: false
+  });
+  const publicKey = normalizeSignUpOptions(signUpOptionsPayload);
+  const attestation = await navigator.credentials.create({ publicKey });
+  if (!attestation) throw new Error("No attestation returned by WebAuthn");
+  const signUpPayload = await apiFetch("/api/ibex/auth/sign-up/complete", {
+    method: "POST",
+    body: { credential: serializeAttestation(attestation) },
+    retryOnAuth: false
+  });
+  const tokens = extractTokens(signUpPayload);
+  if (!tokens) throw new Error("Missing tokens after sign-up");
+  logEvent("Sign-up succeeded", { rpId });
+  setSession(tokens, null);
+  await loadProfile();
+  await loadMarketData();
+  return tokens;
 }
 
 async function validateSessionOnInit() {
@@ -539,6 +689,23 @@ el.authBtn.addEventListener("click", () =>
   })
 );
 
+if (el.signupBtn) {
+  el.signupBtn.addEventListener("click", () =>
+    withButtonLoading(el.signupBtn, async () => {
+      try {
+        await signUpOnly();
+      } catch (error) {
+        const rpId = resolveRpId();
+        logEvent("Manual sign-up failed", {
+          error: String(error),
+          rpId,
+          hint: authGuidanceMessage("Manual sign-up", rpId, error)
+        }, "error");
+      }
+    })
+  );
+}
+
 el.refreshBtn.addEventListener("click", () =>
   withButtonLoading(el.refreshBtn, async () => {
     try {
@@ -574,6 +741,13 @@ el.reloadMarketBtn.addEventListener("click", () =>
     logEvent("Market data reloaded");
   })
 );
+if (el.sepaForm) el.sepaForm.addEventListener("submit", onSepaFormSubmit);
+
+window.ibexSepa = {
+  createSepaPaymentIntent,
+  confirmSepaPayment,
+  runSepaPaymentFlow
+};
 
 render();
 logEvent("rpId resolved", { rpId: resolveRpId() });
