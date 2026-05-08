@@ -1,0 +1,3843 @@
+# IBEX FI API – Endpoints Reference (v1.2)
+
+## Overview
+
+This document describes the IBEX FI API **v1.2** — routes under the **`/v1.2/`** prefix (and related `api` paths documented below) unless stated otherwise.
+
+- **Domains**: Tenant registration and administration under **`/v1.2/domains/`** — DNS TXT challenge (public), then JWT/API-key protected create/list/detail/update/quota. See the dedicated section below and the portal page `/docs/api-reference/admin/domains`.
+- **System**: Internal routes under `/system/` (no version prefix) — cron, health, KYC/IBAN webhooks, lookups. See `docs/IBEXFIAPI_SYSTEM_ENDPOINTS.md`.
+
+**Authentication**
+
+- **JWT**: `Authorization: Bearer <token>`
+- **API_KEY**: header `x-api-key` (and optionally `X-Blockchain-Id` for chain scope)
+- **PUBLIC**: no auth
+
+**Host / rpId**
+
+- Requests are scoped by `Host` (or origin). Use the same domain as your app (e.g. `https://app.example.com`).
+
+---
+
+## Version matrix (summary)
+
+| Area            | Endpoint (logical)                    | v1.2 |
+|-----------------|---------------------------------------|------|
+| Auth            | GET/POST sign-up, sign-in, POST refresh, POST email/recover | ✓    |
+| Auth extra Safe | POST sign-in/safe-provision           | ✓    |
+| Users           | me, me/operations, :id, me/balances, me/transactions, me/address, **me/addressbook** (unified SEPA+crypto) | ✓    |
+| Recovery        | GET status/:safeAddress               | ✓    |
+| Safes wallets   | POST `/safes/:safeAddress/wallets` | ✓   |
+| Safes           | automation-module/config, swap/quote, operations, batch-*, bitcoin, ibexsafe | ✓    |
+| SEPA            | iban/add, payments, transactions, vop/verify | ✓    |
+| Domains (`/v1.2/domains/`) | dns-challenge, PUT create, list, detail, update, quota | ✓ |
+| Domain KV (`/v1.2/domain/kv`) | GET/PUT/PATCH JSON store (API key only) | ✓    |
+| System (`/system/`) | health, cron, logs purge, user-operations/*, lookup/* | – (no version prefix) |
+
+---
+
+## Authentication
+
+### Sign-up (get options)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET | `/v1.2/auth/sign-up` | PUBLIC | **v1.2** |
+
+**Query parameters (optional):**
+
+| Parameter | Type | v1.2 | Description |
+|-----------|------|------|-------------|
+| `wallet` | string | ✓ | `passkeys` (default), `kdf`, `email` |
+| `flow` | string | ✓ | e.g. `pin-kdf` (same as wallet=kdf) |
+| `email` | string | ✓ | Required if `wallet=email` |
+| `user.name`, `userName` | string | ✓ | Override WebAuthn user.name |
+| `user.displayname`, `userDisplayName` | string | ✓ | Override WebAuthn user.displayName |
+| `keyName`, `keyDisplayName` | string | ✓ | Passkey display name |
+| `passkeys` | string | (legacy) | `TRUE` / `FALSE` |
+
+**Response (200):**  
+- **Passkeys (default)**: `credentialRequestOptions` (rp, user, challenge, pubKeyCredParams, authenticatorSelection, attestation, timeout).  
+- **wallet=kdf**: JWT + `authMethod`, `flow`, `salt`, `kdf`, `challenge`, `serverSignature`, etc.  
+- **wallet=email**: JWT + `authMethod`, `emailOtpExpiresAt`, `challenge`, etc.  
+- **passkeys=FALSE** + email (legacy): JWT + `emailValidationRequired`.
+
+**Example request (passkeys):**
+```http
+GET /v1.2/auth/sign-up
+Host: app.example.com
+```
+
+**Example response (passkeys):**
+```json
+{
+  "credentialRequestOptions": {
+    "rp": { "id": "app.example.com", "name": "app.example.com" },
+    "user": { "id": "<base64url>", "name": "...", "displayName": "..." },
+    "challenge": "<base64url>",
+    "pubKeyCredParams": [{ "alg": -7, "type": "public-key" }],
+    "authenticatorSelection": { "residentKey": "preferred", "userVerification": "preferred" },
+    "attestation": "none",
+    "timeout": 60000
+  },
+  "emailValidationRequired": false
+}
+```
+
+**WebAuthn PRF integration note (signup / registration):**
+
+If your frontend enables PRF during registration, apply the same conversion rule before `navigator.credentials.create()`:
+- IBEX can return PRF extension inputs as **base64url strings**
+- browser APIs expect **BufferSource / ArrayBuffer** for PRF binary fields
+
+In practice, convert PRF fields (`extensions.prf.eval.first/second` and `extensions.prf.evalByCredential[*].first/second`) from base64url to `ArrayBuffer` in `webauthn.js` before passing `publicKey` to WebAuthn.
+
+Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for registration).
+
+**200 Response (wallet=kdf):**
+```json
+{
+  "userId": "<userId>",
+  "externalUserId": "<externalUserId>",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "PIN_KDF_PENDING",
+  "flow": "pin-kdf",
+  "salt": "base64-salt",
+  "saltVersion": 1,
+  "kdf": { "algo": "argon2id", "memory": 65536, "iterations": 3, "parallelism": 1 },
+  "kdfParamsVersion": 1,
+  "challenge": "base64-nonce",
+  "challengeExpiresAt": "2025-12-11T10:15:00Z",
+  "serverSignature": "sig(challenge||exp||externalUserId||appId)",
+  "serverKeyId": "kid-1",
+  "opaque": {
+    "envelope": "b64-opaque-envelope",
+    "serverPub": "b64-opaque-server-pub"
+  },
+  "emailValidationRequired": false,
+  "hasPasskey": false
+}
+```
+
+**200 Response (wallet=email):**
+```json
+{
+  "userId": "<userId>",
+  "externalUserId": "<externalUserId>",
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "EMAIL_TOKEN_PENDING",
+  "flow": "email",
+  "wallet": "email",
+  "emailOtpExpiresAt": "2025-12-11T10:15:00Z",
+  "emailOtp": "123456",                         // local/tests only (do not return in production)
+  "challenge": "base64-nonce",
+  "challengeExpiresAt": "2025-12-11T10:15:00Z",
+  "serverSignature": "sig(challenge||exp||externalUserId||appId)",
+  "serverKeyId": "email-token-hmac-v1",
+  "hasPasskey": false
+}
+```
+
+---
+
+### Sign Up – Complete Registration (2/2)
+
+- **POST** `/v1.2/auth/sign-up`
+- **Auth**: PUBLIC (EXTERNAL)
+- **Tags**: EXTERNAL, Authentication
+- **Description**: Complete signup by validating passkey credential and/or email code
+
+**Request body:**
+- `credential` (object, required if passkeys=TRUE in GET): WebAuthn credential from `navigator.credentials.create()`
+- `emailCode` (string, optional): Email validation code (legacy; not supported with `wallet=passkeys`)
+- `externalUserId` (string, optional): ExternalUserId from GET /sign-up (for deferred passkey creation)
+- `chainIds` (array, optional): Chain IDs for multi-chain Safe deployment
+- `chainId` (number, optional): Single chain ID (alternative to chainIds)
+- `provisioning` (object, optional, passkeys mode only): advanced provisioning block. If omitted, signup behavior is unchanged.
+  - `provisioning.safes[]`:
+    - `chainId` (number, required): Safe chain to provision during signup.
+    - `derive[]` (optional): per-safe derivation requests (`family`, `count`).
+  - `provisioning.global` (optional):
+    - `derive[]` (optional): signer-global derivation requests (`family`, `count`).
+    - `chainId` (optional): client orchestration hint; global derivation remains signer-scoped.
+- `keyName`, `keyDisplayName` (string, optional): Passkey metadata
+- **PIN/KDF flow (only if passkeys=FALSE + flow=pin-kdf in GET):**
+  - `publicKey` (string, required): derived public key/address
+  - `signature` (string, required): signature over the canonical message `{challenge, challengeExpiresAt, challengeId?, externalUserId, saltVersion, kdfParamsVersion, appId, timestamp, nonce}`
+  - `challenge`, `challengeExpiresAt`, `challengeId?` (string): from GET
+  - `saltVersion`, `kdfParamsVersion` (numbers): from GET
+  - `nonce`, `timestamp` (required): client-provided, checked for replay/skew
+  - `serverSignature`, `serverKeyId` (required): from GET
+  - `opaqueLoginRequest` (string, optional): OPAQUE login request if PAKE enabled
+
+**Validation rules:**
+
+1. **If wallet=passkeys (or passkeys=TRUE legacy) in GET:**
+   - `credential` is REQUIRED (reject if missing/invalid)
+   - `emailCode` is ignored (passkeys+email validation removed)
+
+2. **If passkeys=FALSE and email provided in GET:**
+   - `emailCode` is REQUIRED (reject if missing/invalid)
+   - `credential` is ignored
+
+3. **Deferred passkey creation:**
+   - If `externalUserId` provided (from previous GET with passkeys=FALSE), can add passkey later
+   - `credential` required in this case
+
+4. **If passkeys=FALSE + flow=pin-kdf in GET:**
+   - Ignore any passkey credential fields
+   - Require the PIN/KDF proof fields (`publicKey`, `signature`, `challenge`, `saltVersion`, `kdfParamsVersion`, `nonce`, `timestamp`, `serverSignature`; optional `opaqueLoginRequest`)
+   - Enforce single-use challenge, skew checks on `timestamp`, and first-bind of `externalUserId` → `publicKey` (or controlled rotation if already bound)
+
+5. **If `provisioning` is present (passkeys mode):**
+   - Signup still deploys Safe(s) as usual, and then executes optional derivation provisioning.
+   - If signer has no sealed master, provisioning derivation fails with `409 NO_MASTER`.
+   - If `provisioning` is absent, behavior is strictly identical to legacy signup.
+
+**200 Response (passkey created):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "foo.domain",
+  "audience": "foo.domain",
+  "subject": "<externalUserId>",
+  "roles": ["USER"],
+  "authMethod": "PASSKEY",
+  "hasPasskey": true,
+  "safeAddress": {
+    "100": "0x18D89744F87a0EC3259289c2Eaf728D567DaF13b",
+    "421614": "0xd676c6188195372EC269E9C2cAf815C56436A679"
+  },
+  "chainId": 421614,
+  "keyName": "my-passkey",
+  "keyDisplayName": "My Passkey",
+  "eoaAddress": "0x...",
+  "eoaAddresses": [
+    { "type": "EVM", "address": "0x..." },
+    { "type": "SOLANA", "address": "..." },
+    { "type": "BITCOIN_P2WPKH", "address": "bc1q..." }
+  ],
+  "prfCapable": true
+}
+```
+
+> **`safeAddress` format:** This field is a **JSON object** (not a string) that maps **chain IDs to Safe smart contract wallet addresses**. Each key is a blockchain chain ID as a string (e.g. `"100"` for Gnosis, `"421614"` for Arbitrum Sepolia), and each value is the user's deployed Safe address (`0x...`) on that chain. If the user has Safes deployed on multiple chains, there will be multiple entries. Example:
+> ```json
+> "safeAddress": {
+>   "100": "0x18D8...F13b",     // Gnosis chain (chainId=100) → Safe address
+>   "421614": "0xd676...A679"   // Arbitrum Sepolia (chainId=421614) → Safe address
+> }
+> ```
+
+**200 Response (PIN/KDF signer bound):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "PIN_KDF",
+  "hasPasskey": false,
+  "flow": "pin-kdf",
+  "signerBound": true,
+  "signerVersion": 1,
+  "publicKey": "0x...",
+  "safeAddress": {
+    "100": "0x18D89744F87a0EC3259289c2Eaf728D567DaF13b",
+    "421614": "0xd676c6188195372EC269E9C2cAf815C56436A679"
+  }
+}
+```
+
+> **`safeAddress` format:** Same as above — a `{ chainId: safeAddress }` mapping object. See passkey response above for full explanation.
+```
+
+**200 Response (email validated, passkeys=FALSE):**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "app.example.com",
+  "subject": "<externalUserId>",
+  "roles": ["USER"],
+  "hasPasskey": true,
+  "safeAddress": { "421614": "0x..." }
+}
+```
+
+**Note:** passkey + email validation is no longer supported in v1.2 (use `wallet=email` instead).
+
+**Notes:**
+- `safeAddress` (object, optional): A **`{ chainId: safeAddress }` mapping object**. Each key is a blockchain chain ID as a string (e.g. `"100"`, `"421614"`), and each value is the user's deployed Safe smart contract wallet address (`0x...`) on that chain. Present only if the user has a passkey. Contains one entry per chain where a Safe was deployed during sign-up. This is NOT a single address string — it is a key-value map allowing multi-chain support.
+- `eoaAddresses` is an array of `{ type, address }` entries for derived wallet addresses. This array is filtered by `WALLET_TYPE_SIGNIN` environment variable (CSV of types like "EVM,SOLANA,BITCOIN_P2WPKH") for both sign-up and sign-in. All addresses are generated internally, but only the filtered subset is returned in the response.
+- `eoaAddress` is the EVM address (for backward compatibility).
+- `prfCapable` indicates whether PRF (hmac-secret) was used for this credential (only if passkey exists).
+- `provisioning` (optional, when requested): summary of additional safes/global derivations executed during signup.
+
+---
+
+### Sign-in (get options)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET | `/v1.2/auth/sign-in` | PUBLIC | **v1.2** |
+| POST | `/v1.2/auth/sign-in` | PUBLIC | **v1.2** |
+
+**Query parameters:**
+- `wallet` (string, optional): `passkeys` (default), `kdf`, `email`
+- `externalUserId` (string, optional): required for `wallet=kdf` and `wallet=email`
+- `flow` (string, optional, **deprecated**): `pin-kdf` (prefer `wallet=kdf`)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `email` | string | With `externalUserId`: send email code |
+| `externalUserId` | string | With email: send code; alone: return JWT directly (no challenge) |
+| `flow` | string | v1.2: `pin-kdf` for PIN/KDF materials |
+| `wallet` | string | v1.2: `kdf`, `email` |
+
+1. **No params (default)**: Returns WebAuthn authentication options (passkey challenge)
+2. **wallet=kdf + externalUserId**: Returns PIN/KDF derive materials (challenge/salt/kdf params)
+3. **wallet=email + externalUserId**: Sends email OTP (30s), returns `emailOtpExpiresAt`
+
+**Response enrichment (available on POST sign-in, step 2):**
+
+When completing sign-in via `POST /sign-in` (step 2), you can include optional boolean flags in the request body to receive additional data alongside the JWT tokens. This avoids extra API calls after sign-in.
+
+| Flag | Type | What it adds |
+|------|------|-------------|
+| `includeBalance` | boolean | `balance` — all monitored token balances for the wallet on the requested chain, **including tokens with zero balance**. This effectively gives you the full list of the user's watched tokens/addresses. |
+| `includeTransactions` | boolean | `transactions` — paginated transaction history for the wallet |
+| `includeUserdata` | boolean | `userdata` — stored user preferences (language, email, etc.) |
+
+Use `chainId` in the POST body to select which chain to query (defaults to the platform's default chain).
+
+See POST sign-in section below for full details and response examples.
+
+**Example request (passkeys):**
+```http
+GET /v1.2/auth/sign-in
+Host: app.example.com
+```
+
+**Example response (passkey challenge):**
+```json
+{
+  "credentialRequestOptions": {
+    "challenge": "<base64url>",
+    "rpId": "app.example.com",
+    "userVerification": "required",
+    "timeout": 60000,
+    "allowCredentials": [{ "id": "<base64url>", "type": "public-key" }]
+  }
+}
+```
+
+**WebAuthn PRF integration note (important):**
+
+Some clients receive this browser error when calling `navigator.credentials.get()`:
+
+`TypeError: extensions.prf.eval.first is not instance of ArrayBuffer`
+
+Root cause: IBEX returns PRF extension values as **base64url strings**, while browsers expect **BufferSource / ArrayBuffer** for:
+- `publicKey.extensions.prf.eval.first`
+- `publicKey.extensions.prf.eval.second` (if present)
+- `publicKey.extensions.prf.evalByCredential[credentialId].first/second`
+
+Convert these fields in your `webauthn.js` before passing options to WebAuthn:
+
+```js
+function b64urlToArrayBuffer(input) {
+  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function normalizePrfExtensions(publicKey) {
+  const prf = publicKey?.extensions?.prf;
+  if (!prf) return publicKey;
+
+  if (prf.eval?.first) prf.eval.first = b64urlToArrayBuffer(prf.eval.first);
+  if (prf.eval?.second) prf.eval.second = b64urlToArrayBuffer(prf.eval.second);
+
+  if (prf.evalByCredential && typeof prf.evalByCredential === "object") {
+    for (const key of Object.keys(prf.evalByCredential)) {
+      const entry = prf.evalByCredential[key];
+      if (entry?.first) entry.first = b64urlToArrayBuffer(entry.first);
+      if (entry?.second) entry.second = b64urlToArrayBuffer(entry.second);
+    }
+  }
+
+  return publicKey;
+}
+
+// usage
+const publicKey = normalizePrfExtensions(credentialRequestOptions);
+await navigator.credentials.get({ publicKey });
+```
+
+Also keep standard WebAuthn conversions in place (`challenge`, `allowCredentials[].id`, and `user.id` on registration).
+
+**200 Response (wallet=email — OTP sent):**
+```json
+{
+  "externalUserId": "<externalUserId>",
+  "wallet": "email",
+  "hasPasskey": false,
+  "emailOtpExpiresAt": "2025-12-11T10:15:30Z",
+  "emailOtp": "123456"  // local/tests only (not returned in production)
+}
+```
+
+**200 Response (wallet=kdf):**
+```json
+{
+  "externalUserId": "<externalUserId>",
+  "wallet": "kdf",
+  "flow": "pin-kdf",
+  "salt": "base64-salt",
+  "saltVersion": 1,
+  "kdf": { "algo": "argon2id", "memory": 65536, "iterations": 3, "parallelism": 1 },
+  "kdfParamsVersion": 1,
+  "challenge": "base64-nonce",
+  "challengeExpiresAt": "2025-12-11T10:15:00Z",
+  "serverSignature": "sig(challenge||exp||externalUserId||appId)",
+  "serverKeyId": "pin-kdf-hmac-v1",
+  "hasPasskey": false
+}
+```
+
+### Additional Safe (same passkey, same chain) — v1.2
+
+Registers another **counterfactual Safe4337** address for the same passkey signer on a given EVM chain, using a custom **CREATE2 `saltNonce`** (Safe relay-kit `predictedSafe.safeDeploymentConfig.saltNonce`). The primary Safe from sign-up / multi-chain expansion uses the **default** salt (stored in DB as empty `deploySaltNonce`).
+
+| Step | Method | Path | Auth |
+|------|--------|------|------|
+| 1 | POST | `/v1.2/auth/sign-in` | PUBLIC (passkey body + `intent`) |
+| 2 | POST | `/v1.2/auth/sign-in/safe-provision` | Bearer `safe_provision_token` |
+
+**Step 1 — POST /v1.2/auth/sign-in**
+
+- Send the usual WebAuthn `credential` (and optional `chainId`, enrichment flags).
+- Add **`intent`: `"safe_provision"`** in the JSON body or as query `?intent=safe_provision`.
+- Signer must be **PASSKEY** with **`walletMode=SAFE_4337`** (rejects EOA-7702-only signers).
+- Response includes the normal session tokens plus:
+  - **`safe_provision_token`**: short-lived JWT (TTL `safe_provision_expires_in`, typically 300 seconds).
+  - **`safe_provision_expires_in`**: seconds.
+
+The provision token is **single-use**: a Redis slot is reserved until step 2 consumes it.
+
+**Step 2 — POST /v1.2/auth/sign-in/safe-provision**
+
+- Header: **`Authorization: Bearer <safe_provision_token>`** (use the token from step 1, not `access_token`).
+- Body:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `blockchainId` | number | Target chain (must be active and Safe-enabled). |
+| `saltNonce` | string (decimal) | Must be `>= 1` and unique per signer+chain; distinct values yield distinct predicted addresses. |
+
+**Response (200):** `address`, `blockchainId`, `saltNonce`, `deploySaltNonce` (same as `saltNonce`).
+
+**Optional fields on POST sign-in (passkey)** — choose which Safe the session attaches to:
+
+| Field | Description |
+|-------|-------------|
+| `safeAddress` | Checksummed address; must belong to the signer on the effective `chainId`. |
+| `deploySaltNonce` | String; `""` selects the primary Safe for that chain; otherwise the slot used at provision (e.g. `"1"`). |
+
+When multiple Safes exist on one chain, **`safeAddress`** enrichment in the sign-in response prefers the **primary** (empty `deploySaltNonce`) for that chain.
+
+---
+
+### Per-Safe derived EOAs — v1.2
+
+Each Safe of the authenticated signer can hold its own indexed set of **derived EOA addresses**, one list per chain family (`EVM`, `SOLANA`, `BITCOIN_P2WPKH`, `BITCOIN_P2TR`, `BITCOIN_P2WPKH_TESTNET`, `BITCOIN_P2TR_TESTNET`, `COSMOS`, `POLKADOT`, `TEZOS_TZ1`, `TEZOS_TZ2`, `TEZOS_TZ3`, `NEAR`, `STELLAR`, `CARDANO`).
+
+These addresses are **independent from the global signer set** (the one returned at sign-up / sign-in via `eoaAddresses`, filtered by `WALLET_TYPE_SIGNIN`). Both sets share the same passkey master, but the per-Safe set uses a Safe-scoped HKDF info string:
+
+```
+info = "<familyTag>:safe:<safeAddressLower>:i:<index>"
+```
+
+Index is 0-based and contiguous (positions in the stored array). The derivation is fully deterministic — calling the endpoint with the same inputs always yields the same address.
+
+**Auth model:** standard JWT (`Authorization: Bearer <access_token>`). The Safe must belong to the signer identified by the `sid` claim. **No WebAuthn ceremony is required**: the master is unsealed server-side from `Signer.data.derivation.sealedMaster`. Signers without a sealed master (e.g. legacy or wallet-signin) get `409 NO_MASTER`.
+
+**Limits:**
+
+| Limit | Value |
+|-------|-------|
+| Max indices per family per Safe | 100 |
+| Max indices added per request   | 10  |
+| Rate limit                      | ~5s per signer |
+
+#### POST `/v1.2/safes/:safeAddress/wallets`
+
+Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `count` (default `1`, max `10`) fresh indices to that family for this Safe.
+
+**Body:**
+
+```json
+{
+  "add": [
+    { "family": "EVM",    "count": 2 },
+    { "family": "SOLANA"               }
+  ]
+}
+```
+
+**Field rules:**
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `add` | array | min 1 item |
+| `add[].family` | string | one of the supported families above |
+| `add[].count` | integer | optional, in `[1..10]`, default `1` |
+
+**Response (200):**
+
+```json
+{
+  "safeAddress": "0xd676c6188195372EC269E9C2cAf815C56436A679",
+  "added": [
+    { "family": "EVM",    "index": 2, "address": "0x..." },
+    { "family": "EVM",    "index": 3, "address": "0x..." },
+    { "family": "SOLANA", "index": 1, "address": "..." }
+  ],
+  "perSafe": {
+    "EVM":    ["0x... (idx 0)", "0x... (idx 1)", "0x... (idx 2)", "0x... (idx 3)"],
+    "SOLANA": ["... (idx 0)", "... (idx 1)"]
+  }
+}
+```
+
+**Errors:**
+
+| Status | Code | Cause |
+|--------|------|-------|
+| `400`  | invalid family / count out of range / no `add[]` | bad body |
+| `400`  | `MAX_INDEX_PER_FAMILY exceeded for ...` | hard cap reached for a family on this Safe |
+| `401`  | JWT missing or `sid` claim absent | unauthenticated |
+| `404`  | Safe not found for the authenticated signer | `:safeAddress` not owned by the JWT `sid` |
+| `409`  | `NO_MASTER: ...` | signer has no sealed master (cannot derive) |
+| `429`  | rate limit | wait the `Retry-After` window |
+
+---
+
+### Refresh token
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST | `/v1.2/auth/refresh` | PUBLIC | **v1.2** |
+
+**Request body:**
+
+| Field | Type | Required |
+|-------|------|----------|
+| `refresh_token` | string | Yes |
+
+**Response (200):** New `access_token` and `refresh_token`, plus `token_type`, `expires_in`, `issuer`, `subject`, `roles`.
+
+**Example body:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "foo.domain",
+  "audience": "foo.domain",
+  "subject": "<externalUserId>",
+  "roles": ["USER"],
+  "authMethod": "PASSKEY",
+  "hasPasskey": true,
+  "safeAddress": {
+    "100": "0x18D89744F87a0EC3259289c2Eaf728D567DaF13b",
+    "421614": "0xd676c6188195372EC269E9C2cAf815C56436A679"
+  },
+  "chainId": 421614,
+  "keyName": "my-passkey",
+  "keyDisplayName": "My Passkey",
+  "eoaAddress": "0x...",
+  "eoaAddresses": [
+    { "type": "EVM", "address": "0x..." },
+    { "type": "SOLANA", "address": "..." },
+    { "type": "BITCOIN_P2WPKH", "address": "bc1q..." }
+  ],
+  "prfCapable": true,
+  "balance": {},
+  "transactions": {},
+  "userdata": {}
+}
+```
+
+**Example response:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "foo.domain",
+  "audience": "foo.domain",
+  "subject": "<externalUserId>",
+  "roles": ["USER"],
+  "authMethod": "EMAIL",
+  "hasPasskey": false
+}
+```
+
+**200 Response (PIN/KDF):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "foo.domain",
+  "audience": "foo.domain",
+  "subject": "<externalUserId>",
+  "roles": ["USER"],
+  "authMethod": "PIN_KDF",
+  "hasPasskey": false,
+  "flow": "pin-kdf",
+  "publicKey": "0x...",
+  "signerVersion": 1,
+  "safeAddress": {
+    "100": "0x18D89744F87a0EC3259289c2Eaf728D567DaF13b",
+    "421614": "0xd676c6188195372EC269E9C2cAf815C56436A679"
+  },
+  "balance": {},
+  "transactions": {},
+  "userdata": {}
+}
+```
+
+**Note:** passkey + email validation is no longer supported in v1.2 (use `wallet=email` instead).
+
+**Notes:**
+- `balance`, `transactions`, and `userdata` are included only if the corresponding `include*` flags are set to `true` in the request body.
+- The `access_token` (JWT) should be used in subsequent API calls as: `Authorization: Bearer <token>`
+
+---
+
+### Refresh Token
+
+- **POST** `/v1.2/auth/refresh`
+- **Auth**: PUBLIC (EXTERNAL)
+- **Tags**: EXTERNAL, Authentication
+- **Description**: Refresh JWT token using a refresh token
+
+**Request body:**
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**200 Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "issuer": "foo.domain",
+  "audience": "foo.domain",
+  "subject": "<externalUserId>",
+  "roles": ["USER"]
+}
+```
+
+---
+
+### Email recovery (v1.2 only)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST | `/v1.2/auth/email/recover` | PUBLIC | **v1.2** |
+
+**Purpose:** In the email Safe wallet flow: after GET sign-in with `wallet=email`, user receives OTP; POST here with OTP to get recovery payload and challenge for **POST /v1.2/auth/sign-in**.
+
+**Request body:** Typically `email`, `emailOtp` (or `code`), `externalUserId`; exact shape depends on upstream. See OpenAPI or upstream IBEX Safe docs.
+
+**Response (200):** Recovery/challenge data used by the client to complete POST sign-in (wallet=email).
+
+---
+
+### KYC/KYB bootstrap (authenticated)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST | `/v1.2/auth/iframe` | JWT | **v1.2** |
+| POST | `/v1.2/auth/enroll` | JWT | **v1.2** |
+
+**`POST /v1.2/auth/iframe`**
+
+- Purpose: start a KYC session and return iframe/redirect URLs.
+- Body (optional): `{ "language": "en" }` (or other language code).
+- Response (200): usually includes `chatbotURL`, `sessionId`, `chatbotFullURL`, `alreadySent`.
+
+**`POST /v1.2/auth/enroll`**
+
+- Purpose: start KYB enrollment (business onboarding), proxied to IBEX Safe.
+- Body (required): `{ "email", "companyRegistrationNumber", "returnUrl?" }`.
+- Response (200): enrollment/session payload (e.g. `status`, `sessionId`, `chatbotFullURL`).
+- Response (409): conflict when an enrollment already exists or is not eligible for a new one.
+
+---
+
+## Users
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET | `/v1.2/users/me` | JWT | **v1.2** |
+| POST | `/v1.2/users/me` | JWT | **v1.2** |
+| GET | `/v1.2/users/me/operations` | JWT | **v1.2** |
+| GET | `/v1.2/domain/users/:id` | API_KEY | **v1.2** |
+| GET | `/v1.2/users/me/balances` | JWT | **v1.2** (`type` / `identifier` envelope) |
+| GET | `/v1.2/users/me/transactions` | JWT | **v1.2** (same crypto envelope) |
+| GET | `/v1.2/users/me/pools` | JWT | **v1.2** (proxy BCReader pools) |
+| GET | `/v1.2/users/me/lending` | JWT | **v1.2** (proxy BCReader lending) |
+| GET | `/v1.2/users/me/tokens` | JWT | **v1.2** (proxy BCReader config tokens) |
+| GET | `/v1.2/users/me/ibans` | JWT | **v1.2** |
+| GET | `/v1.2/users/me/signers` | JWT | **v1.2** |
+| GET | `/v1.2/users/kyc/status` | JWT | **v1.2** |
+| POST | `/v1.2/users/me/validate-email` | JWT | **v1.2** |
+| POST | `/v1.2/users/me/confirm-email` | JWT | **v1.2** |
+| GET/POST/PUT/DELETE | `/v1.2/users/me/addressbook` (+ `/:id`, sub-routes crypto / IBAN) | JWT | **v1.2** (unified contacts — IBEXSAFE `addressbook.entry.*`) |
+| GET | `/v1.2/users/me/chainid` | JWT | **v1.2** |
+| GET | `/v1.2/users/me/address` | JWT | **v1.2** |
+| POST | `/v1.2/users/me/wallets/global` | JWT | **v1.2** (append signer-global derived addresses) |
+
+---
+
+### GET /v1.2/users/me
+
+**Headers:** `Authorization: Bearer <access_token>`.
+
+**Response (200):**
+
+Aggregator endpoint for the authenticated user scope.  
+It proxies the following routes and returns one top-level key per section (compact format, no `{ status, data }` wrapper on success):
+
+- `GET /v1.2/users/me/address`
+- `GET /v1.2/users/me/balances`
+- `GET /v1.2/users/me/chainid`
+- `GET /v1.2/users/me/ibans`
+- `GET /v1.2/users/me/lending`
+- `GET /v1.2/users/me/pools`
+- `GET /v1.2/users/me/signers`
+- `GET /v1.2/users/me/transactions`
+- `GET /v1.2/users/kyc/status`
+- `GET /v1.2/users/me/addressbook`
+
+Notes about pagination/defaults:
+- The aggregator does not apply extra hidden caps on top of dedicated endpoints.
+- `transactions` section now uses the same defaults as `GET /v1.2/users/me/transactions` when query params are omitted (`page=1`, `limit=50`, `includePrices=true`).
+- `balances` section keeps the same behavior as `GET /v1.2/users/me/balances` (no additional aggregator-only limit override).
+- If one or more sections fail, the response adds an optional `errors` object:  
+  `errors.<section> = { status, message }`.
+- Failed sections are omitted from top-level section keys and represented in `errors`.
+
+**Example:**
+```http
+GET /v1.2/users/me
+Authorization: Bearer <access_token>
+Host: app.example.com
+```
+```json
+{
+  "addresses": { "count": 1, "wallets": [] },
+  "balances": { "type": "crypto", "identifier": "0x..." },
+  "chainid": { "defaultChainId": 421614, "chains": [] },
+  "ibans": { "count": 5, "ibans": [] },
+  "lending": [],
+  "pools": {},
+  "signers": { "count": 1, "signers": [] },
+  "transactions": { "type": "crypto", "data": [] },
+  "kycStatus": { "externalUserId": "604a81ce-...", "kycLevel": "2", "status": "verified", "verified": true },
+  "addressbook": { "entries": [] }
+}
+```
+
+**Example (partial failure):**
+```json
+{
+  "addresses": { "count": 1, "wallets": [] },
+  "balances": { "type": "crypto", "identifier": "0x..." },
+  "errors": {
+    "transactions": { "status": 500, "message": "Internal server error" }
+  }
+}
+```
+
+---
+
+### POST /v1.2/users/me
+
+Write arbitrary key/value data for the authenticated user (`data` object). Keys prefixed with `private.` are stored but never returned by `GET /v1.2/users/me`.
+
+**Headers:** JWT.
+
+**Body:**
+
+```json
+{
+  "data": {
+    "email": "jane.doe@foo.domain",
+    "language": "en",
+    "private.tier": "gold"
+  }
+}
+```
+
+**Response (200):**
+
+```json
+{ "success": true }
+```
+
+---
+
+### GET /v1.2/users/me/operations
+
+**Headers:** JWT. **Query (optional):** `status`, `limit`, `offset`, pagination params.
+
+**Response (200):** List of user operations (e.g. `userOpHash`, `status`, `safeAddress`, `transactionHash`, timestamps). Shape defined by backend.
+
+---
+
+### GET /v1.2/domain/users/:id
+
+**Path:** `:id` = tenant `externalUserId` (API_KEY only).
+
+**Response (200):** User object (same shape as `/v1.2/users/me` user payload: `ky`, `signers`, `safes`).
+
+---
+
+<a id="get-v12-usersmebalances"></a>
+
+### GET /v1.2/users/me/balances
+
+**Headers:** JWT ; optional **`X-Blockchain-Id`** (or query `blockchainId`) to scope chain context.
+
+**Query (optional):** `walletAddress`, `iban`, `includeZero`, `includePrices`, `page`, `limit`.
+
+Default values:
+- `includePrices=true` (if omitted).
+- `page` / `limit`: no API-level default override is enforced by this route; behavior follows BCReader defaults when omitted.
+
+`externalUserId` is taken from the JWT (forwarded as `externaluserid` to BCReader), not from query params on this endpoint.
+
+Scope behavior:
+- If only `externalUserId` is present (via JWT), with no `walletAddress` and no `iban`: aggregated user mode (`/v1.2/balances`) that returns all balances across all wallets and all IBANs linked to the authenticated user.
+- `walletAddress`: scoped mode (`/v1.2/balances/:identifier`) for one wallet.
+- `iban`: scoped mode (`/v1.2/balances/:identifier`) for one IBAN.
+- `walletAddress` + `iban`: rejected (`400`, ambiguous scope).
+
+`walletAddress` accepted values:
+- a Safe address from `GET /v1.2/users/me/address` (`wallets[].safeAddress`)
+- a derived EOA address from `GET /v1.2/users/me/address?includeDerived=true` (`wallets[].derived.global.eoaAddresses[].address`)
+
+When a derived EOA is provided, the API resolves it to a Safe of the same signer (prefers the requested chain context when available).  
+If the address is not owned by the authenticated user, the API returns `400`.
+
+`iban` is normalized (spaces removed, uppercase) before proxying to BCReader.
+
+Ownership enforcement:
+- the API forwards `externaluserid=<externalUserId from JWT>` to BCReader on every call.
+- `externaluserid` is the client-facing user identifier.
+
+**Recommended example (aggregated mode):** `GET /v1.2/users/me/balances?includePrices=true&includeZero=true` (with JWT carrying `externalUserId`).
+
+**Response (200):** BCReader v1.2 passthrough payload.
+
+- scoped wallet/IBAN call: typed identifier envelope (`type`, `identifier`, `balance`, etc.)
+- aggregated call (default): combined payload across user wallets/IBANs (e.g. `crypto`, `fiat`, `totals`, optional pagination block)
+
+Token rows typically include `price_usd` / `price_eur`, `value_usd` / `value_eur`, `primaryAddress`, `status`, `source`, etc., and not only the legacy example fields `price` / `value` in USD.
+
+---
+
+<a id="get-v12-usersmetransactions"></a>
+
+### GET /v1.2/users/me/transactions
+
+**Headers:** JWT ; optional **`X-Blockchain-Id`** / `blockchainId`.
+
+**Query (optional):** `walletAddress`, `iban`, `startDate`, `endDate`, `direction`, `tokenType`, `tokenAddress`, `hash`, `page`, `limit`, `includePrices`. Default date values may be applied by the API when omitted.
+
+Default values (when omitted):
+- `startDate=2025-01-01`
+- `endDate=<tomorrow UTC date>`
+- `page=1`
+- `limit=50`
+- `includePrices=true`
+
+Pagination note:
+- This endpoint is paginated by design. There is no "return all transactions in one call" mode.
+- To fetch the full history, iterate over `page` until `totalPages` is reached (or until returned `data` is empty), then merge pages client-side.
+
+`externalUserId` is taken from the JWT (forwarded as `externaluserid` to BCReader), not from query params on this endpoint.
+
+Scope behavior:
+- If only `externalUserId` is present (via JWT), with no `walletAddress` and no `iban`: aggregated user mode (`/v1.2/transactions`) for all user wallets and IBANs.
+- `walletAddress`: scoped mode (`/v1.2/transactions/:identifier`) for one wallet.
+- `iban`: scoped mode (`/v1.2/transactions/:identifier`) for one IBAN.
+- `walletAddress` + `iban`: rejected (`400`, ambiguous scope).
+
+`walletAddress` accepted values:
+- a Safe address from `GET /v1.2/users/me/address` (`wallets[].safeAddress`)
+- a derived EOA address from `GET /v1.2/users/me/address?includeDerived=true` (`wallets[].derived.global.eoaAddresses[].address`)
+
+When a derived EOA is provided, the API resolves it to a Safe of the same signer (prefers the requested chain context when available).  
+If the address is not owned by the authenticated user, the API returns `400`.
+
+`iban` is normalized (spaces removed, uppercase) before proxying to BCReader.
+
+Ownership enforcement:
+- the API forwards `externaluserid=<externalUserId from JWT>` to BCReader on every call.
+- `externaluserid` is the client-facing user identifier.
+
+Pagination/filtering remain unchanged (`page`, `limit`, date/token filters, `includePrices`).
+
+**Response (200):** BCReader v1.2 passthrough payload.
+
+- scoped wallet/IBAN call: typed identifier envelope with pagination fields.
+- aggregated call (default): BCReader global transactions format for the authenticated user scope.
+
+---
+
+### GET /v1.2/users/me/tokens
+
+Returns the monitored token list from BCReader config.
+
+**Headers:** JWT. Optional `X-Blockchain-Id` to scope to one chain.
+
+**Behavior:**
+
+- With `X-Blockchain-Id`: returns tokens for that specific chain.
+- Without `X-Blockchain-Id`: returns multi-chain data as provided by BCReader (can be grouped by chain depending on backend config behavior).
+
+**Response (200):**
+
+The endpoint is a pass-through proxy to BCReader `/v1.1/config/tokens`, so the exact payload follows BCReader format. Typical token fields include:
+
+- `address`, `symbol`, `name`, `decimals`
+- `blockchainId` / `chainId`
+- optional metadata such as `secondaryAddress`, `active`, `iconUrl`, `type`, timestamps
+
+**Example (single-chain style):**
+
+```json
+[
+  {
+    "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+    "symbol": "EURe",
+    "name": "Monerium EUR emoney",
+    "decimals": 18,
+    "blockchainId": "421614",
+    "active": true
+  }
+]
+```
+
+**Example (grouped multi-chain style):**
+
+```json
+[
+  {
+    "blockchainId": "100",
+    "tokens": [
+      {
+        "address": "0x...",
+        "symbol": "xDAI",
+        "decimals": 18
+      }
+    ]
+  },
+  {
+    "blockchainId": "421614",
+    "tokens": [
+      {
+        "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+        "symbol": "EURe",
+        "decimals": 18
+      }
+    ]
+  }
+]
+```
+
+---
+
+### GET /v1.2/users/me/pools
+
+Returns DeFi pool balances/yields for the authenticated user's wallet (proxy to BCReader pools).
+
+**Headers:** JWT. Optional `X-Blockchain-Id`.
+
+**Query (optional):** `includeZero=true|false`.
+
+**Response (200):** BCReader payload (object envelope; passthrough).
+
+---
+
+### GET /v1.2/users/me/lending
+
+Returns available lending pools for the authenticated user's chain (proxy to BCReader lending).
+
+**Headers:** JWT. Optional `X-Blockchain-Id`.
+
+**Response (200):** array of lending pool objects (passthrough from BCReader).
+
+---
+
+### Unified address book (`/v1.2/users/me/addressbook`)
+
+**Auth:** JWT. **Storage:** IBEXSAFE userdata — one flat key per **entry**: `addressbook.entry.<uuid>`. Each entry combines **SEPA IBAN rows** (see below) and **crypto recipients** in a single contact.
+
+**Entry JSON (conceptual):**
+
+- `id`, `name`, optional `label`, `userValidated`, `createdAt`, `updatedAt`
+- `crypto`: `[{ "chainId", "address" }, …]` — at most **50** per entry; **global** uniqueness of `(chainId, address)` across all entries for the user
+- `ibans`: `[{ "iban", "vop", "vopResult?", "matchedName?", "respondingPspBic?", "label?", "verifiedAt" }, …]` — populated **only** via `POST /v1.2/sepa/vop/verify` when VOP returns **MTCH** (optional `entryId` to attach to an existing entry); **global** uniqueness of `iban` across all entries
+
+On EVM chains (`EVM_CHAINS_ISSAFEWALLET`), crypto `address` must be valid `0x` + 40 hex and is checksum-normalized. At most **500** entries per user.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1.2/users/me/addressbook` | List entries (`success` + `data[]`). |
+| POST | `/v1.2/users/me/addressbook` | Body `{ "name", "label?", "userValidated?", "crypto?" }`. Creates an entry **without** IBANs (add IBANs via VOP). |
+| PUT | `/v1.2/users/me/addressbook/:id` | Partial update: `name`, `label`, `userValidated` only. |
+| DELETE | `/v1.2/users/me/addressbook/:id` | Tombstones `addressbook.entry.<id>`. |
+| POST | `/v1.2/users/me/addressbook/:id/crypto` | Body `{ "chainId", "address" }` — append one crypto row. |
+| DELETE | `/v1.2/users/me/addressbook/:id/crypto/:chainId/:address` | Remove one crypto row (address URL-encoded if needed). |
+| DELETE | `/v1.2/users/me/addressbook/:id/ibans/:iban` | Remove one IBAN row from the entry (no VOP). |
+
+**Response shape:** top-level `success` + `data` (array or object depending on route).
+
+---
+
+### GET /v1.2/users/me/chainid
+
+**Headers:** JWT.
+
+Returns **all active platform chains** (`Chains.isActive=true`) for the authenticated signer (`sid` from JWT when present), plus signer wallets and per-chain module statuses.
+
+Chains without any signer wallet are still included with `wallets: []`.
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `defaultChainId` | number | Current/default chain ID resolved from request context (or server default). |
+| `chains` | array | All active chains on the platform. |
+| `chains[].chainId` | number | Chain ID. |
+| `chains[].chainName` | string | Human-readable chain name. |
+| `chains[].modules` | object | Aggregated module flags for signer wallets on this chain. |
+| `chains[].modules.recovery` | boolean \| `"N/A"` | `"N/A"` if recovery is not available on this chain (`recoveryContract` and `recoveryModuleMasterAddress` are both missing); otherwise `true` if activated on at least one signer wallet, else `false`. |
+| `chains[].modules.automation` | boolean \| `"N/A"` | `"N/A"` if automation is not available on this chain (`automationModuleAddress` missing); otherwise `true` if activated on at least one signer wallet, else `false`. |
+| `chains[].modules.multisig` | `true` \| `"N/A"` | `true` if Safe multisig is available on this chain (`isSafeWallet=true`), otherwise `"N/A"`. |
+| `chains[].wallets` | array | Wallet addresses on this chain for the authenticated signer; can be empty (`[]`). |
+| `chains[].wallets[].address` | string | Safe wallet address. |
+
+**Example (200):**
+
+```json
+{
+  "defaultChainId": 421614,
+  "chains": [
+    {
+      "chainId": 421614,
+      "chainName": "Arbitrum Testnet Sepolia",
+      "modules": {
+        "recovery": "N/A",
+        "automation": true
+      },
+      "wallets": [
+        { "address": "0x490E...cAC2" }
+      ]
+    },
+    {
+      "chainId": 100,
+      "chainName": "Gnosis",
+      "modules": {
+        "recovery": false,
+        "automation": true
+      },
+      "wallets": [
+        { "address": "0x490E...cAC2" }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### GET /v1.2/users/me/address
+
+Returns wallet addresses grouped per Safe across all deployed chains for the authenticated user/signer.
+
+Use this endpoint as the **source of truth** for recovery activation status (`wallets[].chains[].modules.recovery.enabled`) per Safe and per chain.
+
+**Headers:** JWT.
+
+**Query (optional):**
+
+- `includeDerived` (boolean): when `true`, each `wallets[]` item is enriched with:
+  - `derived.perSafe` (per-family addresses for this Safe)
+  - `derived.global.eoaAddresses` (signer-global derived addresses, without `WALLET_TYPE_SIGNIN` filtering)
+
+**Signer filtering (`sid` in JWT):**
+
+- If the JWT includes `sid`, only wallets of that signer are returned.
+- If `sid` is missing (legacy tokens), the endpoint falls back to all signers for the user.
+
+**Response status:**
+
+- `200` with payload when at least one wallet exists.
+- `204` (No Content) when no wallet is found for the current filter.
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rpId` | string | Current rpId namespace. |
+| `externalUserId` | string | Authenticated external user id. |
+| `signerId` | string (optional) | Signer ID from JWT (`sid`) when available. |
+| `count` | number | Number of distinct Safe addresses in `wallets`. |
+| `wallets` | array | List of Safes for the signer/user scope. |
+| `wallets[].safeAddress` | string | Safe wallet address. |
+| `wallets[].chainIds` | number[] | Chain IDs where this Safe is deployed (sorted ascending). |
+| `wallets[].threshold` | number | Safe multisig threshold. |
+| `wallets[].chains` | array | Per-chain details, sorted by `chainId`. |
+| `wallets[].chains[].chainId` | number | Chain ID for this entry. |
+| `wallets[].chains[].modules` | object (optional) | Present only when at least one module is configured on that chain. |
+| `wallets[].chains[].modules.recovery.enabled` | boolean | Recovery module activation status. |
+| `wallets[].chains[].modules.recovery.moduleAddress` | string (optional) | Recovery module address if known. |
+| `wallets[].chains[].modules.automation.enabled` | boolean | Automation/allowance effective status (`false` if module exists but disabled). |
+| `wallets[].chains[].modules.automation.moduleAddress` | string (optional) | Automation module address. |
+| `wallets[].chains[].modules.automation.targetAddress` | string (optional) | Target address configured for automation. |
+| `wallets[].chains[].modules.automation.transferMode` | string (optional) | Transfer mode (`PERCENT_OF_RECEIVED` or `FIXED_AMOUNT`). |
+| `wallets[].chains[].modules.automation.percentage` | number (optional) | Configured automation percentage. |
+| `wallets[].chains[].modules.automation.fixedAmount` | string (optional) | Fixed transfer amount (token units, human-readable). |
+| `wallets[].chains[].modules.automation.maxWalletPercentage` | number (optional) | Optional cap (% of wallet balance) applied in fixed-amount mode at transfer time. |
+| `wallets[].chains[].modules.automation.minIntervalMinutes` | number (optional) | Minimum delay between automatic transfers (minutes). |
+| `wallets[].chains[].modules.automation.periodCapAmount` | string (optional) | Maximum cumulative amount per window (token units). |
+| `wallets[].chains[].modules.automation.periodCapMinutes` | number (optional) | Window length used by the cumulative cap (minutes). |
+| `wallets[].chains[].modules.automation.frequency` | string (optional) | Automation execution frequency. |
+| `wallets[].chains[].modules.automation.tokenAddress` | string (optional) | Token used by automation. |
+| `wallets[].createdAt` | string (date-time) | Earliest Safe creation timestamp across returned chain rows. |
+| `wallets[].updatedAt` | string (date-time) | Latest update timestamp across returned chain rows. |
+| `wallets[].primary` | boolean | `true` for the first wallet in response ordering. |
+| `wallets[].derived` | object (optional) | Present only when `includeDerived=true`. |
+| `wallets[].derived.perSafe` | object | Per-family derived addresses for this Safe (`{ family: [address...] }`). |
+| `wallets[].derived.global.eoaAddresses` | array | Signer-global derived addresses as `{ type, address }`. |
+
+**Example (200):**
+
+```json
+{
+  "rpId": "ibex.fi",
+  "externalUserId": "c76302cb-f845-40f4-9c56-29710323afba",
+  "signerId": "AVZs0qRCBSmfThZWu37g...",
+  "count": 1,
+  "wallets": [
+    {
+      "safeAddress": "0xd676c6188195372EC269E9C2cAf815C56436A679",
+      "chainIds": [100, 421614],
+      "threshold": 1,
+      "chains": [
+        { "chainId": 100 },
+        {
+          "chainId": 421614,
+          "modules": {
+            "recovery": {
+              "enabled": true,
+              "moduleAddress": "0xRecov..."
+            },
+            "automation": {
+              "enabled": true,
+              "moduleAddress": "0xAllow...",
+              "targetAddress": "0xDest...",
+              "transferMode": "PERCENT_OF_RECEIVED",
+              "percentage": 25,
+              "minIntervalMinutes": 60,
+              "periodCapAmount": "1000",
+              "periodCapMinutes": 10080,
+              "frequency": "DAILY",
+              "tokenAddress": "0xUSDC..."
+            }
+          }
+        }
+      ],
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-03-20T14:00:00.000Z",
+      "primary": true
+    }
+  ]
+}
+```
+
+**Example (200) with `includeDerived=true`:**
+
+```json
+{
+  "rpId": "ibex.fi",
+  "externalUserId": "c76302cb-f845-40f4-9c56-29710323afba",
+  "count": 1,
+  "wallets": [
+    {
+      "safeAddress": "0xd676c6188195372EC269E9C2cAf815C56436A679",
+      "chainIds": [421614],
+      "threshold": 1,
+      "chains": [{ "chainId": 421614 }],
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-03-20T14:00:00.000Z",
+      "primary": true,
+      "derived": {
+        "perSafe": {
+          "EVM": ["0xAbc...", "0xDef..."],
+          "SOLANA": ["..."]
+        },
+        "global": {
+          "eoaAddresses": [
+            { "type": "EVM", "address": "0x..." },
+            { "type": "SOLANA", "address": "..." }
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+### GET /v1.2/users/me/ibans
+
+Returns all IBAN records linked to the authenticated user's Safe wallets.
+
+**Headers:** JWT.
+
+**Response (200):** `{ "count": number, "ibans": [...] }` with fields such as `safeAddress`, `blockchainId`, `status`, `provider`, `createdAt`, `updatedAt`.
+
+---
+
+### GET /v1.2/users/me/signers
+
+Returns all signers attached to the authenticated user (PASSKEY, EOA, EMAIL_TOKEN).
+
+**Headers:** JWT.
+
+**Response (200):** `{ "count": number, "signers": [...] }` including `id`, `type`, `walletMode`, optional passkey labels, timestamps, and `safesCount`.
+
+---
+
+### POST /v1.2/users/me/wallets/global
+
+Derives and appends new **signer-global** addresses (not tied to a Safe).
+
+This endpoint extends `signer.data.derivation.globalIndexed[family]` and keeps backward compatibility with legacy global fields (`eoaAddress`, `solanaAddress`, etc.) by seeding index `0` from legacy values when available.
+
+**Headers:** JWT.
+
+**Body:**
+
+```json
+{
+  "add": [
+    { "family": "EVM", "count": 2 },
+    { "family": "SOLANA", "count": 1 }
+  ]
+}
+```
+
+**Field rules:**
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `add` | array | min 1 item |
+| `add[].family` | string | one of: `EVM`, `SOLANA`, `BITCOIN_P2WPKH`, `BITCOIN_P2TR`, `BITCOIN_P2WPKH_TESTNET`, `BITCOIN_P2TR_TESTNET`, `COSMOS`, `POLKADOT`, `TEZOS_TZ1`, `TEZOS_TZ2`, `TEZOS_TZ3`, `NEAR`, `STELLAR`, `CARDANO` |
+| `add[].count` | integer | optional, in `[1..10]`, default `1` |
+
+**Response (200):**
+
+```json
+{
+  "added": [
+    { "family": "EVM", "index": 1, "address": "0x..." },
+    { "family": "EVM", "index": 2, "address": "0x..." },
+    { "family": "SOLANA", "index": 1, "address": "..." }
+  ],
+  "globalIndexed": {
+    "EVM": ["0xLegacyIndex0...", "0x...", "0x..."],
+    "SOLANA": ["LegacyOrDerivedIndex0...", "..."]
+  },
+  "globalEoaAddresses": [
+    { "type": "EVM", "address": "0xLegacyIndex0..." },
+    { "type": "EVM", "address": "0x..." },
+    { "type": "SOLANA", "address": "..." }
+  ],
+  "limits": {
+    "maxIndexPerFamily": 100,
+    "maxCountPerRequest": 10,
+    "supportedFamilies": ["EVM", "SOLANA", "BITCOIN_P2WPKH", "BITCOIN_P2TR", "BITCOIN_P2WPKH_TESTNET", "BITCOIN_P2TR_TESTNET", "COSMOS", "POLKADOT", "TEZOS_TZ1", "TEZOS_TZ2", "TEZOS_TZ3", "NEAR", "STELLAR", "CARDANO"]
+  }
+}
+```
+
+**Errors:**
+
+| Status | Code | Cause |
+|--------|------|-------|
+| `400`  | invalid family / count out of range / no `add[]` | bad body |
+| `400`  | `MAX_INDEX_PER_FAMILY exceeded for ...` | hard cap reached for a family |
+| `401`  | JWT missing or `sid` claim absent | unauthenticated |
+| `409`  | `NO_MASTER: ...` | signer has no sealed master (cannot derive) |
+| `429`  | rate limit | wait the `Retry-After` window |
+
+---
+
+### GET /v1.2/users/kyc/status
+
+Returns KYC status for the authenticated user.
+
+**Headers:** JWT.
+
+**Response (200):**
+
+- `externalUserId`
+- `kycLevel` (`0`, `1`, `2`)
+- `status` (`not_started`, `pending`, `verified`, or `unknown`)
+- `verified` (boolean)
+
+---
+
+### POST /v1.2/users/me/validate-email
+
+Sends an email verification code through IBEX Safe.
+
+**Headers:** JWT.
+
+**Body:** `{ "email", "externalUserId" }`
+
+**Response (200):** upstream validation payload (passthrough).
+
+---
+
+### POST /v1.2/users/me/confirm-email
+
+Confirms the email verification code through IBEX Safe.
+
+**Headers:** JWT.
+
+**Body:** `{ "email", "code", "externalUserId" }`
+
+**Response (200):** upstream confirmation payload (passthrough).
+
+---
+
+## IBAN (provider-agnostic)
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| POST | `/v1.2/iban/create` | JWT | Create flow starter (returns WebAuthn challenge/options) |
+| GET | `/v1.2/iban/transactions` | JWT | IBAN/FIAT transactions are available via `GET /v1.2/users/me/transactions` (use `iban` query param for scoped view) |
+| GET | `/v1.2/iban/balances` | JWT | IBAN/FIAT balances are available via `GET /v1.2/users/me/balances` (use `iban` query param for scoped view) |
+| POST | `/v1.2/iban/revoke` | JWT | Currently returns `501 Not Implemented` |
+
+### POST /v1.2/iban/create
+
+Starts IBAN creation for a Safe and provider (`MONERIUM` or `TRACTIAL`). This endpoint prepares a Safe operation and returns `credentialRequestOptions` for WebAuthn signing.
+
+**Headers:** JWT.
+
+**Body (required):** `{ "safeAddress", "provider", "chainId?" }`
+
+**Response (200):** includes `userOpHash` and `credentialRequestOptions`.
+
+---
+
+### GET /v1.2/iban/transactions
+
+`/v1.2/iban/transactions` remains a placeholder route.
+
+To retrieve IBAN/FIAT transactions, use `GET /v1.2/users/me/transactions` instead:
+- scoped IBAN view: `?iban=<IBAN>`
+- aggregated user view (default): no `walletAddress` / no `iban`, with IBAN/FIAT data in the aggregated response sections.
+
+See the canonical endpoint details in [`GET /v1.2/users/me/transactions`](#get-v12-usersmetransactions).
+
+**Current response on `/v1.2/iban/transactions`:** `501 Not Implemented`.
+
+---
+
+### GET /v1.2/iban/balances
+
+`/v1.2/iban/balances` remains a placeholder route.
+
+To retrieve IBAN/FIAT balances, use `GET /v1.2/users/me/balances` instead:
+- scoped IBAN view: `?iban=<IBAN>`
+- aggregated user view (default): no `walletAddress` / no `iban`, with IBAN/FIAT sections in the combined payload (e.g. `crypto`, `fiat`, `totals`).
+
+See the canonical endpoint details in [`GET /v1.2/users/me/balances`](#get-v12-usersmebalances).
+
+**Current response on `/v1.2/iban/balances`:** `501 Not Implemented`.
+
+---
+
+### POST /v1.2/iban/revoke
+
+Placeholder route.
+
+**Headers:** JWT.
+
+**Body:** `{ "safeAddress", "chainId?" }`
+
+**Response:** `501 Not Implemented`.
+
+---
+
+## Chains and Chain Config
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/v1.2/chains/` | JWT | Active chains with module availability |
+| GET | `/v1.2/domain/chainid` | API_KEY | Tenant aggregate view (same payload shape as `/v1.2/users/me/chainid`) |
+| GET | `/v1.2/chain/tokens` | JWT | BCReader alias: `/v1.1/config/tokens` (compat route) |
+
+### GET /v1.2/chains/
+
+Returns active chains and enabled modules (`billing`, `cowswap`, `recovery`, `automation`).
+
+**Headers:** JWT.
+
+**Response (200):** array of `{ id, name, modules }`.
+
+---
+
+### GET /v1.2/domain/chainid
+
+Returns active chains enriched with wallets and module status for the current tenant (`rpId`) resolved from host/origin + `x-api-key`.
+
+The payload shape matches `GET /v1.2/users/me/chainid`:
+- `defaultChainId`
+- `chains[]` with `chainId`, `chainName`, `modules`, `wallets[]`
+
+**Headers:** `X-API-Key: <key>`.
+
+**Request:**
+
+```http
+GET /v1.2/domain/chainid
+X-API-Key: <key>
+```
+
+**Response (200):** tenant aggregate chain/wallet/module view.
+| `rpcUrlHttp` / `rpcUrlHttpBackup` | string | HTTP RPC endpoint(s) |
+| `rpcUrlWs` / `rpcUrlWsBackup` | string | WebSocket RPC endpoint(s) |
+| `explorerTx` | string | Base explorer URL for transactions |
+| `explorerWallet` | string | Base explorer URL for addresses |
+| `explorerToken` | string | Base explorer URL for tokens |
+| `chainLogo` | string | Chain logo URL |
+| `createdAt` / `updatedAt` | string (date-time) | Record timestamps |
+
+**Example (200):**
+
+```json
+[
+  {
+    "id": 1,
+    "chainName": "Arbitrum Sepolia",
+    "chainId": "421614",
+    "chainSymbol": "ARB_SEP",
+    "networkType": "testnet",
+    "rpcUrlWs": "wss://arb-sepolia.g.alchemy.com/v2/...",
+    "rpcUrlWsBackup": "wss://ws.quicknode.com/...",
+    "rpcUrlHttp": "https://arb-sepolia.g.alchemy.com/v2/...",
+    "rpcUrlHttpBackup": "https://rpc.quicknode.com/...",
+    "explorerTx": "https://sepolia.arbiscan.io/tx/",
+    "explorerWallet": "https://sepolia.arbiscan.io/address/",
+    "explorerToken": "https://sepolia.arbiscan.io/token/",
+    "chainLogo": "https://example.com/arbitrum-logo.png",
+    "createdAt": "2025-06-02T13:30:45.000Z",
+    "updatedAt": "2025-06-02T13:30:45.000Z"
+  }
+]
+```
+
+**Error responses:**
+
+- `401/403`: missing or invalid API key.
+- `500`: upstream BCReader/proxy error.
+
+**Important:**
+
+- This endpoint is **configuration-oriented** and does not expose per-user or per-Safe state.
+- For module activation (`recovery`, `automation`, etc.): use `GET /v1.2/chains/` (aggregated) or `GET /v1.2/users/me/address` (per Safe/per chain source of truth).
+
+---
+
+### GET /v1.2/chain/tokens
+
+Compatibility alias for monitored token configuration (same upstream source as `GET /v1.2/users/me/tokens`).
+
+This route proxies BCReader `GET /v1.1/config/tokens` and returns the payload as-is.
+
+**Headers:**
+
+- `Authorization: Bearer <access_token>` (JWT required)
+- Optional `X-Blockchain-Id: <id>` for chain scoping
+
+**Behavior:**
+
+- With `X-Blockchain-Id`: returns tokens for one chain (flat token array).
+- Without `X-Blockchain-Id`: returns multi-chain data as provided by BCReader (often grouped by chain).
+
+**Response (200):**
+
+Array payload from BCReader. Fields can evolve. Typical token fields include:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Internal token row id |
+| `address` | string | Token contract address |
+| `secondaryAddress` | string \| null | Optional alternate/bridged address |
+| `symbol` | string | Ticker symbol |
+| `name` | string | Token name |
+| `decimals` | number | Token decimals |
+| `type` | string | Token type (for example `ERC20`) |
+| `active` | boolean | Whether token is enabled in config |
+| `blockchainId` | string | Chain identifier (example: `"421614"`) |
+| `createdAt` / `updatedAt` | string (date-time) | Record timestamps (when available) |
+
+**Example request (single-chain):**
+
+```http
+GET /v1.2/chain/tokens
+Authorization: Bearer <access_token>
+X-Blockchain-Id: 421614
+```
+
+**Example response (single-chain style):**
+
+```json
+[
+  {
+    "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+    "symbol": "EURe",
+    "name": "Monerium EUR emoney",
+    "decimals": 18,
+    "blockchainId": "421614",
+    "active": true
+  }
+]
+```
+
+**Example response (grouped multi-chain style):**
+
+```json
+[
+  {
+    "blockchainId": "100",
+    "tokens": [
+      {
+        "address": "0x...",
+        "symbol": "xDAI",
+        "decimals": 18
+      }
+    ]
+  },
+  {
+    "blockchainId": "421614",
+    "tokens": [
+      {
+        "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+        "symbol": "EURe",
+        "decimals": 18
+      }
+    ]
+  }
+]
+```
+
+**Error responses:**
+
+- `401`: missing/invalid JWT.
+- `500`: upstream BCReader/proxy error.
+
+**Notes:**
+
+- This is a compatibility route; prefer `GET /v1.2/users/me/tokens` for user-facing integrations.
+- This endpoint serves token **configuration data**, not user balances.
+
+---
+
+## Recovery
+
+Recovery has two parts: **reading status** (GET) and **enabling/cancelling recovery** (on-chain via Safes operations). There is **no dedicated endpoint to enable recovery for a Safe that is not yet deployed** (lazy mode). Enabling recovery is an on-chain operation and requires the Safe to already exist and be known to the API (the Safe must appear in the backend for the authenticated user and rpId).
+
+### GET – Recovery status
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET | `/v1.2/recovery/status/:safeAddress` | JWT | **v1.2** |
+
+**Path:** `safeAddress` – Safe address (EVM, case-insensitive).
+
+**Headers:** `Authorization: Bearer <token>`, optional `X-Blockchain-Id` or `?blockchainId=` for chain scope.
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `safeAddress` | string | The Safe address queried |
+| `recoveryEnabled` | boolean | Whether recovery is enabled on-chain for this Safe |
+| `recoveryAddress` | string \| null | Recovery module address if enabled |
+| `delay` | number \| null | Recovery delay in seconds (if applicable) |
+| `pendingRecovery` | boolean | Whether a recovery operation is pending (signed but not yet confirmed on-chain) |
+| `canExecute` | boolean | Whether recovery can be executed now (currently always `false`) |
+| `executeAfter` | string \| null | ISO timestamp after which recovery can be executed (if applicable) |
+| `dataRecovery` | boolean | Whether recovery data exists in the IBEX Safe service |
+| `pending` | array | Pending recovery operations (with `userOpHash`, `status`, `createdAt`, `updatedAt`) |
+| `executed` | array | Executed recovery operations (with `userOpHash`, `transactionHash`, `status`, timestamps) |
+| `userOpHash` | string \| null | Latest SafeOperation userOpHash for this Safe |
+| `transactionHash` | string \| null | Latest transaction hash if executed |
+
+**Example request:**
+```http
+GET /v1.2/recovery/status/0xd676c6188195372EC269E9C2cAf815C56436A679
+Authorization: Bearer <access_token>
+Host: app.example.com
+X-Blockchain-Id: 421614
+```
+
+- Request example (query fallback):
+```
+GET /api/v1.2/balances/0xabc...?blockchainId=421614
+X-API-Key: <key>
+```
+
+---
+
+## Config (`api`)
+
+- Endpoints under `/api/v1.2/config/*` require `X-Blockchain-Id` (or `?blockchainId=`). Unless stated otherwise, responses should include `blockchainId` in returned objects when applicable.
+
+### GET `/api/v1.2/config/addresses`
+- Response: `WatchedAddress[]` (scoped to `blockchainId`)
+
+### POST `/api/v1.2/config/addresses`
+- Body: `{ address, issuer?, ibexid? }`
+- Response: `{ message, address: WatchedAddress }` (address created for the selected `blockchainId`)
+
+### DELETE `/api/v1.2/config/addresses/:id`
+- Response: `{ message }`
+
+### GET `/api/v1.2/config/tokens`
+- Response: `WatchedToken[]` (scoped to `blockchainId`)
+  - Each item includes optional `secondaryAddress` (alternate/updated token address if applicable) and `active` (boolean)
+  - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
+
+Example response:
+```json
+[
+  {
+    "id": 1,
+    "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+    "secondaryAddress": null,
+    "active": true,
+    "iconUrl": "https://cdn.example.com/tokens/eure.png",
+    "blockchainId": "421614",
+    "symbol": "EURe",
+    "name": "Monerium EURe (EURe)",
+    "decimals": 18,
+    "type": "stablecoin",
+    "createdAt": "2025-10-17T12:34:56.000Z",
+    "updatedAt": "2025-10-17T12:34:56.000Z"
+  }
+]
+```
+
+### GET `/api/v1.2/config/tokens/symbol/:symbol`
+- Response: same as above, filtered by `WatchedToken.symbol` (case-insensitive)
+  - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
+
+### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
+- Response: same as above, filtered by `WatchedToken.blockchainId`
+  - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
+
+### GET `/api/v1.2/config/tokens/address/:address`
+- Response: same as above, filtered by primary `WatchedToken.address` (lowercased)
+  - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
+
+### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
+- Response: same as above, filtered by `WatchedToken.secondaryAddress` (lowercased)
+  - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
+
+### POST `/api/v1.2/config/tokens`
+- Body: `{ address, symbol, name?, decimals? }`
+- Response: `{ message, token: WatchedToken }`
+
+### PUT `/api/v1.2/config/tokens/:id`
+- Body: `{ symbol?, name?, decimals?, active? }`
+- Response: `{ message, token: WatchedToken }`
+
+### DELETE `/api/v1.2/config/tokens/:id`
+- Response: `{ message }`
+
+## Config Tokens (`api`)
+
+Endpoints under `/api/v1.2/config/tokens/*` provide enhanced token listing with automatic grouping by `blockchainId` when the `X-Blockchain-Id` header is not provided.
+
+### Behavior
+- **With `X-Blockchain-Id` header**: Returns a flat array of tokens for the specified blockchain (same as the per-chain flat list without grouping)
+- **Without `X-Blockchain-Id` header**: Returns tokens grouped by `blockchainId` in the format `[{ blockchainId, tokens: [...] }]`
+- **Token type**: The `type` field is returned in uppercase (e.g., `STABLECOIN_EUR`, `STABLECOIN_USD`, `OTHER`, `DAO`, `GAS`, `MEMECOIN`, `FAKE`, `BLOCKCHAIN`, `LOCAL`, `AAVE`, `WRAPPED`, `TEST`)
+
+### GET `/api/v1.2/config/tokens`
+- Response format depends on header presence:
+  - **With header**: `WatchedToken[]` (flat array, scoped to `blockchainId`)
+  - **Without header**: `[{ blockchainId: string, tokens: WatchedToken[] }]` (grouped by blockchainId)
+
+### GET `/api/v1.2/config/tokens/symbol/:symbol`
+- Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
+- Filters by `WatchedToken.symbol` (case-insensitive)
+
+### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
+- Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
+- Filters by `WatchedToken.blockchainId` (path parameter)
+- If `X-Blockchain-Id` header is provided, it must match the path parameter
+
+### GET `/api/v1.2/config/tokens/address/:address`
+- Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
+- Filters by primary `WatchedToken.address` (lowercased)
+
+### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
+- Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
+- Filters by `WatchedToken.secondaryAddress` (lowercased)
+
+### Pools configuration
+
+Endpoints under `/api/v1.2/config/pools/*` manage/read monitored protocol pools. The optional header `X-Blockchain-Id` scopes results to a specific chain (e.g., `421614`).
+
+### GET `/api/v1.2/config/pools`
+- Response: list of pools with fields: `id`, `blockchainId`, `provider`, `addressesProvider`, `poolAddress`, `active`, timestamps
+- Header `X-Blockchain-Id` supported
+
+### GET `/api/v1.2/config/pools/blockchain/:blockchainId`
+- Response: same as above, filtered by `blockchainId`
+
+### GET `/api/v1.2/config/pools/provider/:provider`
+- Response: same as above, filtered by `provider` (e.g., `AAVE`); supports `X-Blockchain-Id`
+
+### GET `/api/v1.2/config/pools/pool-address/:poolAddress`
+- Response: same as above, filtered by `poolAddress` (0x...); supports `X-Blockchain-Id`
+
+### GET `/api/v1.2/config/pools/addresses-provider/:addressesProvider`
+- Response: same as above, filtered by `addressesProvider` (0x...); supports `X-Blockchain-Id`
+
+### GET `/api/v1.2/config/pools/active/:active`
+- Response: same as above, filtered by `active` (true|false); supports `X-Blockchain-Id`
+
+### Lending configuration
+
+Endpoints under `/api/v1.2/config/lending/*` manage monitored lending pools. The optional header `X-Blockchain-Id` scopes results to a specific chain (e.g., `421614`).
+
+### GET `/api/v1.2/config/lending`
+- Response: list of lendings with fields: `id`, `address`, `blockchainId`, `acceptedTokenAddresses` (array), `active`, timestamps
+- Header `X-Blockchain-Id` supported
+
+### GET `/api/v1.2/config/lending/blockchain/:blockchainId`
+- Response: same as above, filtered by `blockchainId`
+
+### GET `/api/v1.2/config/lending/address/:address`
+- Response: same as above, filtered by `address` (0x...); supports `X-Blockchain-Id`
+
+### GET `/api/v1.2/config/lending/active/:active`
+- Response: same as above, filtered by `active` (true|false); supports `X-Blockchain-Id`
+
+### POST `/api/v1.2/config/lending`
+- Body: `{ address, acceptedTokenAddresses?: string[], active?: boolean }`
+- Response: `{ message, lending }`
+
+### PUT `/api/v1.2/config/lending/:id`
+- Body: any subset of `{ address, acceptedTokenAddresses, active }`
+- Response: `{ message, lending }`
+
+### DELETE `/api/v1.2/config/lending/:id`
+- Response: `{ message }`
+
+### GET `/api/v1.2/config/walletreconcilequeue`
+- Query (optional): `status`, `address`, `page`, `limit`
+- Response: `{ page, limit, total, data: WalletReconcileQueue[] }` (scoped to `blockchainId`)
+
+---
+
+## Pools
+
+### GET `/api/v1.2/pools` (auth required)
+- Returns active `WatchedPools` for the selected `blockchainId`.
+- Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
+- Response: `WatchedPool[]`
+- Fields: `{ id, blockchainId, provider, poolAddress?, addressesProvider?, metadata?, active, supplyToken?, borrowToken?, poolToken? }`
+- Token objects (`supplyToken`, `borrowToken`, `poolToken`) resolve to the corresponding `WatchedToken` shape:
+  - `{ address, symbol, name, decimals }`
+
+Example:
+```json
+[
+  {
+    "id": 1,
+    "blockchainId": "421614",
+    "provider": "AAVE",
+    "poolAddress": "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",
+    "addressesProvider": "0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A",
+    "metadata": { "network": "arbitrum-sepolia", "version": "v3" },
+    "active": true,
+    "supplyToken": {
+      "address": "0x...WBTC",
+      "symbol": "WBTC",
+      "name": "Wrapped BTC",
+      "decimals": 8
+    },
+    "borrowToken": {
+      "address": "0x...WBTC",
+      "symbol": "WBTC",
+      "name": "Wrapped BTC",
+      "decimals": 8
+    },
+    "poolToken": {
+      "address": "0x...aEthUSDC",
+      "symbol": "aEthUSDC",
+      "name": "Aave Arbitrum Sepolia USDC aToken",
+      "decimals": 6
+    }
+  }
+]
+```
+
+### GET `/api/v1.2/pools/:address` (auth required)
+- Goal: expose per‑provider pool balances and yields for a watched `:address`.
+- Query (optional): `includeZero=true` — include items with zero balance.
+- Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
+- Address must be watched; otherwise `404` is returned.
+- Response: `{ timestamp, blockchainId, address, pools: [{ provider, items: [{ tokenAddress, symbol, decimals, baseBalance, currentBalance?, gain?, gainPct?, method?, apr?, apy? }] }] }`
+
+Example:
+```json
+{
+  "timestamp": "2025-06-02T13:30:45Z",
+  "blockchainId": "421614",
+  "address": "0xabc…",
+  "pools": [
+    {
+      "provider": "AAVE",
+      "items": [
+        {
+          "tokenAddress": "0xEURE…",
+          "symbol": "EURE",
+          "decimals": 18,
+          "baseBalance": "100.0000",
+          "currentBalance": "101.2345",
+          "gain": "1.2345",
+          "gainPct": 0.0123,
+          "method": "ATOKEN_INDEX",
+          "apr": 0.0456,
+          "apy": 0.0467
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Lending (`api`)
+
+### GET `/api/v1.2/lending` (auth required)
+- Returns active `WatchedLending` for the selected `blockchainId`.
+- Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
+- Response: `WatchedLending[]`
+- Fields: `{ id, blockchainId, address, acceptedTokenAddresses?, active, createdAt, updatedAt }`
+
+### GET `/api/v1.2/lending/:address` (auth required)
+- Returns one `WatchedLending` by `address` for the selected `blockchainId`.
+- Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
+- Response: `{ id, blockchainId, address, acceptedTokenAddresses?, active, createdAt, updatedAt }`
+
+### GET `/api/v1.2/lending/name/:name` (auth required)
+- Returns `WatchedLending[]` filtered by `name` (case-insensitive) on the selected `blockchainId`.
+
+---
+
+## Checks (`api`)
+
+### POST `/api/v1.2/check-transaction`
+- Purpose: verify a transaction exists and is consistent for the selected `blockchainId`.
+- Body: `{ transactionHash }`
+- Response: `{ blockchainId, exists, transaction? }`
+
+---
+
+## Swaps (`api`)
+
+### POST `/api/v1.2/swap/order/create` (auth required)
+- Purpose: start tracking a CoWSwap or 1INCH order and trigger an immediate status check.
+- Body (required):
+  - `safeAddress` (string, 0x…): owner address (must be present in `WatchedAddresses` for the given chain)
+  - `uid` (string): CoWSwap order UID (required when `provider=COWSWAP`, ignored for 1INCH)
+  - `txHash` (string, 0x…): 1INCH swap transaction hash (required when `provider=1INCH`, ignored for COWSWAP)
+  - `provider` (string): currently `COWSWAP` or `1INCH`
+  - `blockchainId` (string): e.g., `100` for Gnosis
+- Behavior:
+  - Creates a `WatchedSwap` row without initial `status` (nullable at creation)
+  - Immediately fetches order and status from CoWSwap/1INCH and updates fields
+- Response: `{ message, order }` where `order` is the refreshed DB row
+
+Example:
+```bash
+curl -sS -k \
+  -H "accept: application/json" \
+  -H "x-api-key: <API_KEY>" \
+  -X POST \
+  -H "content-type: application/json" \
+  -d '{
+        "safeAddress": "0xfaA672C06e4aBDcB4a1513E9a31c3c498a321468",
+        "uid": "0xd9c6...69069a35",
+        "provider": "COWSWAP",
+        "blockchainId": "100"
+      }' \
+  "https://<host>/api/v1.2/swap/order/create" | jq
+```
+
+Example response:
+```json
+{
+  "message": "Monitored order created",
+  "order": {
+    "id": 1,
+    "uid": "0xd9c6...69069a35",
+    "blockchainId": "100",
+    "safeAddress": "0xfaa672c06e4abdcb4a1513e9a31c3c498a321468",
+    "provider": "COWSWAP",
+    "status": "fulfilled",
+    "type": "traded",
+    "executedSell": "8999454",
+    "executedBuy": "7704892248123160929",
+    "surplus": "0",
+    "lastCheckedAt": "2025-11-02T12:10:35.000Z",
+    "createdAt": "2025-11-02T12:10:34.000Z",
+    "updatedAt": "2025-11-02T12:10:35.000Z"
+  }
+}
+```
+
+Notes:
+- If `safeAddress` is not monitored for the provided `blockchainId`, request is rejected (400).
+- `status` is nullable on creation and set after the first CoWSwap/1INCH fetch.
+
+### GET `/api/v1.2/swap/order/:id` (auth required)
+- Purpose: fetch one tracked order by UID or by txHash.
+- Resolution logic: if `:id` matches `0x` + 64 hex → search by `txHash` (lowercased); otherwise → by `uid`.
+- Response: the `WatchedSwap` row fields:
+  - `{ id, uid?, txHash?, blockchainId, safeAddress, provider, status?, type?, executedSell?, executedBuy?, surplus?, statusPayload?, lastCheckedAt?, createdAt, updatedAt }`
+
+---
+
+## Safes operations
+
+Safe operations endpoints live under `/v1.2/safes/…` and implement wallet operations through Safe Global smart contract wallets.
+
+### POST `/v1.2/safes/operations` (auth required)
+- **Purpose**: request one or several Safe transactions to be prepared and signed/executed by the wallet.
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Blockchain
+- **Body**:
+  - `safeAddress` (string, 0x…): Safe owner address
+  - `walletMode?` (string): execution mode override
+    - `SAFE_4337`: default account-abstraction flow (UserOperation relayed via bundler)
+    - `EOA_7702`: delegated EOA execution flow (EIP-7702)
+    - if omitted, backend uses signer default mode
+  - `eoaKeySelection?` (object, EOA_7702 only): optional key selector for delegated execution
+    - `family`: currently `"EVM"` only
+    - `index`: integer `>= 0`
+    - `safeAddress?`: if provided, selects a per-safe derived key for that Safe (must match the operation Safe)
+  - `operations` (array): list of operation objects (see types below)
+  - `signerId?` (string): optional signer identifier
+  - `chainId?` (number): optional EVM chain id. If omitted, server uses its `DEFAULT_CHAIN_ID`.
+
+- **Supported operation types**:
+  - **TRANSFER_EURe** (existing, unchanged for backward compatibility)
+    - Shape: `{ type: "TRANSFER_EURe", to: 0x…, amount: "<human>" }`
+    - Behavior: resolves EURe token for the target chain and builds an ERC20 `transfer(to, amount)`.
+  - **TRANSFER_TOKEN** (generic token transfer — ERC20 & native)
+    - Shape: `{ type: "TRANSFER_TOKEN", tokenAddress: "0x…", to: "0x…", amount: "<human>", decimals?: <number> }`
+    - Chain selection: `chainId` from request body (falls back to server default)
+    - **ERC20 tokens**: server verifies that the token exists and is active on the selected chain, then builds an ERC20 `transfer(to, amount)` call.
+    - **Native tokens (ETH, xDAI, etc.)**: use the EVM sentinel address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` or `0x0000000000000000000000000000000000000000` as `tokenAddress`. The server detects this and builds a simple value transfer (`{ to, value, data: '0x' }`) instead of an ERC20 call. Native detection also works when token metadata indicates `type: 'NATIVE'`.
+    - `decimals` is optional: auto-resolved by the backend if omitted (fallback to 18).
+    - **Solana chains** (chainId `900`/`901`): uses a 2-step workflow. Step 1 (POST): the server prepares the Solana transaction (native SOL via `SystemProgram.transfer` or SPL token via `createTransferInstruction`), sends it to the fee payer, and returns a WebAuthn challenge. Step 2 (PUT): user signs with passkey, server completes the Solana transaction. For native SOL, use token address `So11111111111111111111111111111111111111111` or `So11111111111111111111111111111111111111112`.
+  - **MONERIUM_CREATE_IBAN**
+    - Shape: `{ "type": "MONERIUM_CREATE_IBAN" }`
+  - **MONERIUM_WITHDRAW_EURe**
+    - Shape: `{ "type": "MONERIUM_WITHDRAW_EURe", "to": "<IBAN>", "amount": "<human>", "label": "<string>", "recipientInfo": { "firstName": "<string>", "lastName": "<string>", "country": "<string>" } }`
+  - **SIGN_MESSAGE**
+    - Shape: `{ "type": "SIGN_MESSAGE", "message": "<string>" }`
+  - **ENABLE_RECOVERY**
+    - Shape: `{ "type": "ENABLE_RECOVERY", "newOwners": ["0x..."], "threshold": 1, "firstName": "<string>", "lastName": "<string>", "birthDate": "YYYY-MM-DD", "birthCity": "<string>", "birthCountry": "<string>" }`
+  - **CANCEL_RECOVERY**
+    - Shape: `{ "type": "CANCEL_RECOVERY" }`
+  - **AAVE_SUPPLY**
+    - Shape (one of):
+      - `{ "type": "AAVE_SUPPLY", "amount": "<human>", "assetTicker": "<string>" }`
+      - `{ "type": "AAVE_SUPPLY", "amount": "<human>", "tokenAddress": "0x…", "decimals": <number> }`
+    - Optional: `referralCode` (number 0..65535)
+    - Pool resolution: via `/api/v1.2/config/pools` for the selected chain; optional fallback `poolAddress: 0x…`
+  - **AAVE_WITHDRAW**
+    - Shape (one of):
+      - `{ "type": "AAVE_WITHDRAW", "amount": "<human>", "assetTicker": "<string>" }`
+      - `{ "type": "AAVE_WITHDRAW", "amount": "<human>", "tokenAddress": "0x…", "decimals": <number> }`
+    - Pool resolution: via `/api/v1.2/config/pools` for the selected chain; optional fallback `poolAddress: 0x…`
+  - **SWAP_FROM_QUOTE**
+    - Shape: `{ "type": "SWAP_FROM_QUOTE", "quoteId": "<string>" }`
+  - **BITCOIN_SEND** (non-EVM, special-case)
+    - Shape: `{ "type": "BITCOIN_SEND", "from": "<btc-address>", "to": "<btc-address>", "amountSat": <number>, "network": "testnet"|"mainnet", "sendAll": false, "feeProfile": "standard"|"slow"|"fast", "externalFeeSponsor": false }`
+    - Behavior: builds a Bitcoin transaction using UTXO selection. The server fetches UTXOs from `/v1.2/safes/bitcoin/utxos` and fee rates from `/v1.2/safes/bitcoin/fees`, estimates vbytes, and constructs inputs/outputs with change.
+    - `from` (required): sender Bitcoin address (user's derived BTC wallet).
+    - `amountSat` (required if `sendAll=false`): amount in satoshis.
+    - `sendAll` (optional, default `false`): if `true`, sends entire balance minus fees.
+    - `feeProfile` (optional, default `standard`): fee rate profile (`slow`, `standard`, `fast`).
+    - `externalFeeSponsor` (optional, default `false`): if `true`, fees are paid externally (not deducted from user balance).
+    - Response includes `prepared` with: `from`, `to`, `amountSat`, `feeSat`, `inputsUsed`, `outputs`, `change`, `network`, `sponsorShortfallSat`.
+  - **HYPERLIQUID_ENTER_VAULT** (server-side, post-execution)
+    - Shape: `{ "type": "HYPERLIQUID_ENTER_VAULT", "hyperliquidData": { "action": "ENTER_VAULT", "amount": <number> } }`
+    - Behavior: after the Safe operation is executed on-chain, the server calls the Hyperliquid API to enter a vault with the specified amount. Uses server-side `HYPERLIQUID_PRIVATE_KEY`, `HYPERLIQUID_PUBLIC_KEY`, and `HYPERLIQUID_VAULT_ADDRESS` environment variables.
+    - Note: not supported in batch mode (throws `NOT_IMPLEMENTED` if used in `batch-intent`).
+  - **HYPERLIQUID_WITHDRAW_VAULT** (server-side, post-execution)
+    - Shape: `{ "type": "HYPERLIQUID_WITHDRAW_VAULT", "hyperliquidData": { "action": "WITHDRAW", "amount": <number> } }`
+    - Behavior: after execution, calls Hyperliquid API to exit a vault with the specified amount.
+    - Note: not supported in batch mode.
+  - **HYPERLIQUID_WITHDRAW** (server-side, post-execution)
+    - Shape: `{ "type": "HYPERLIQUID_WITHDRAW", "hyperliquidData": { "action": "WITHDRAW_WALLET", "to": "0x…", "amount": <number> } }`
+    - Behavior: after execution, calls Hyperliquid API to withdraw funds to the specified wallet address.
+    - Note: not supported in batch mode.
+  - **HYPERLIQUID_DEPOSIT** (server-side, post-execution)
+    - Shape: `{ "type": "HYPERLIQUID_DEPOSIT", "hyperliquidData": { "action": "DEPOSIT", "amount": <number> } }`
+    - Behavior: after execution, calls Hyperliquid API to deposit USDC via the bridge contract (configured via `HYPERLIQUID_BRIDGE_421614` and `SC_USDC_421614` env vars).
+    - Note: not supported in batch mode.
+
+- **Example request (TRANSFER_TOKEN — ERC20)**:
+```json
+{
+  "safeAddress": "0xSAFE000000000000000000000000000000000000",
+  "walletMode": "SAFE_4337",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "TRANSFER_TOKEN",
+      "tokenAddress": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+      "to": "0xDEST000000000000000000000000000000000000",
+      "amount": "1.23"
+    }
+  ]
+}
+```
+
+- **Example request (TRANSFER_TOKEN — EOA_7702 with global derived EVM key index 1)**:
+```json
+{
+  "safeAddress": "0xSAFE000000000000000000000000000000000000",
+  "walletMode": "EOA_7702",
+  "eoaKeySelection": {
+    "family": "EVM",
+    "index": 1
+  },
+  "chainId": 100,
+  "operations": [
+    {
+      "type": "TRANSFER_TOKEN",
+      "tokenAddress": "0x2a22f9c3b484c3629090FeED35F17Ff8F88f76F0",
+      "to": "0xDEST000000000000000000000000000000000000",
+      "amount": "0.01"
+    }
+  ]
+}
+```
+
+- **Example request (TRANSFER_TOKEN — Native xDAI on Gnosis chain 100)**:
+```json
+{
+  "safeAddress": "0xSAFE000000000000000000000000000000000000",
+  "chainId": 100,
+  "operations": [
+    {
+      "type": "TRANSFER_TOKEN",
+      "tokenAddress": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+      "to": "0xDEST000000000000000000000000000000000000",
+      "amount": "0.5",
+      "decimals": 18
+    }
+  ]
+}
+```
+
+- **Example request (BITCOIN_SEND)**:
+```json
+{
+  "safeAddress": "0xSAFE000000000000000000000000000000000000",
+  "operations": [
+    {
+      "type": "BITCOIN_SEND",
+      "from": "tb1q...",
+      "to": "tb1q...",
+      "amountSat": 50000,
+      "network": "testnet",
+      "feeProfile": "standard"
+    }
+  ]
+}
+```
+
+- **Example request (HYPERLIQUID_DEPOSIT)**:
+```json
+{
+  "safeAddress": "0xSAFE000000000000000000000000000000000000",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "HYPERLIQUID_DEPOSIT",
+      "hyperliquidData": {
+        "action": "DEPOSIT",
+        "amount": 100
+      }
+    }
+  ]
+}
+```
+
+- **Example response (POST /v1.2/safes/operations)**:
+```json
+{
+  "batchId": "c559ddd07fe211fe3b34cbe7",
+  "expiresAt": "2025-11-24T00:56:49.225Z",
+  "credentialRequestOptions": {
+    "rpId": "ibex.fi",
+    "challenge": "HES8DdwboMB9vI0fHt_WtkZuHa67KMYKbDKSnyfT1lE",
+    "allowCredentials": [
+      {
+        "id": "_BSUV-JB3OahXllQtfdssAY03gZOnBAH60-6_0DPJGU",
+        "type": "public-key"
+      }
+    ],
+    "timeout": 60000,
+    "userVerification": "required"
+  }
+}
+```
+
+- **Example response (PUT /v1.2/safes/operations, SAFE_4337)**:
+```json
+{
+  "userOpHash": "0x6cdab85147c3472499aa9859e1af51844d853f098d57ca14baf977a83c6f7400"
+}
+```
+
+- **Example response (PUT /v1.2/safes/operations, EOA_7702)**:
+```json
+{
+  "userOpHash": "0x3b3f23afd9429b1804aa76cf249b721cc1a5880a1bda115b4f50ea684dc0c8f6",
+  "success": true,
+  "txHash": "0x455b306f80751d014b7886e762475de86cd0b8d50294f30f8469758cab5cdeda",
+  "walletMode": "EOA_7702"
+}
+```
+
+- **Notes**:
+  - **Backward compatibility**: `TRANSFER_EURe` remains available and unchanged.
+  - The chain must be selected via header `X-Blockchain-Id` or query `?blockchainId=`; the server passes the selected chain id when validating the token.
+  - If token is not found or `active=false`, the request is rejected (4xx).
+
+### PUT `/v1.2/safes/operations` (auth required)
+- **Purpose**: Submit WebAuthn credential to finalize Safe operation (4337 or 7702 depending on prepared intent)
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Blockchain
+- **Request body**:
+```json
+{
+  "credential": {
+    "id": "AVZs0qRCBSmfThZWu37g...",
+    "rawId": "AVZs0qRCBSmfThZWu37g...",
+    "type": "public-key",
+    "response": {
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4/krrmihjLHmVzzuoMdl2MFAAAAAQ...",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoi...",
+      "signature": "MEUCIQC..."
+    }
+  }
+}
+```
+
+### GET `/v1.2/safes/operations/:userOpHash/status` (auth required)
+- **Purpose**: Check the status of a Safe operation via its operation hash
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Blockchain
+- **Path parameters**:
+  - `userOpHash` (string, required): Operation hash returned by `PUT /v1.2/safes/operations` or `PUT /v1.2/safes/operations/batch-execute` (4337 userOpHash or 7702 operation hash key).
+
+- **200 Response**:
+```json
+{
+  "userOpHash": "0x2ef4b34e62fad41fcf91b8a3f5bd4bb0f6d3ad56be2fb8217849e471b7ba0b16",
+  "safeAddress": "0xA0C2503b722DF36e638323A139cd6961f3Ced151",
+  "chainId": 100,
+  "status": "CONFIRMED",
+  "transactionHash": "0x789...abc",
+  "createdAt": "2025-01-15T10:30:00.000Z",
+  "updatedAt": "2025-01-15T10:35:00.000Z",
+  "operations": [
+    { "index": 0, "type": "TRANSFER_TOKEN" }
+  ],
+  "error": null
+}
+```
+
+- **Response fields**:
+  - `userOpHash` (string): UserOperation hash (4337).
+  - `safeAddress` (string): Associated Safe address.
+  - `chainId` (number): Blockchain ID.
+  - `status` (string): Operation status. Possible values:
+    - `CREATED`: Operation created but not signed.
+    - `SIGNED`: Operation signed but not executed.
+    - `EXECUTED`: Operation executed on-chain.
+    - `CONFIRMED`: Operation confirmed with enough blocks (may be set asynchronously by a worker).
+    - `FAILED`: Execution failed.
+  - `transactionHash` (string, nullable): On-chain transaction hash. Present only when the operation has been executed on-chain.
+  - `createdAt` (string): Operation creation date (ISO 8601).
+  - `updatedAt` (string): Last operation update date (ISO 8601).
+  - `operations` (array): List of operations included in this SafeOperation, with their index and type.
+  - `error` (object, nullable): Error details when `status=FAILED`.
+
+---
+
+## Multioperation & Batch Operations
+
+The multioperation feature allows grouping multiple Safe operations into a single transaction using MultiSend, reducing gas costs and improving user experience by requiring only one WebAuthn authentication for multiple operations.
+
+### Batch Operations (Intent & Execute)
+
+#### POST `/v1.2/safes/operations/batch-intent` (auth required)
+- **Purpose**: Prepare a batch of multiple Safe operations to be executed atomically with a single WebAuthn authentication (supports SAFE_4337 and EOA_7702).
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Blockchain
+- **Description**: Builds a batch of heterogeneous Safe operations into a single MultiSend transaction. The endpoint freezes the operations (order preserved) and returns a `batchId`, an expiration timestamp, and WebAuthn `credentialRequestOptions` (challenge bound to the prepared operation hash for the selected wallet mode). It does not execute anything; use `PUT /v1.2/safes/operations/batch-execute` to submit the WebAuthn `credential`.
+
+- **Request body**:
+  - `safeAddress` (string, required): Safe address (EVM format, e.g., `0x...`).
+  - `walletMode` (string, optional): `SAFE_4337` or `EOA_7702` (if omitted, signer default is used).
+  - `eoaKeySelection` (object, optional, EOA_7702 only): same selector as `POST /v1.2/safes/operations` (`family`, `index`, optional `safeAddress`).
+  - `chainId` (number, optional): Target blockchain ID. If omitted, server uses `DEFAULT_CHAIN_ID`.
+  - `idempotencyKey` (string, optional): Client-provided idempotency key to avoid duplicate batch creation.
+  - `options` (object, optional):
+    - `atomic` (boolean, default `true`): If `true`, all operations in the batch must succeed; if any fails, the entire batch is reverted.
+    - `autoApprove` (boolean, default `true`): Automatically insert required ERC20 approvals before token transfers.
+    - `ttlSec` (number, default `300`): Time-to-live in seconds for the intent and any frozen quotes. Range: 60-3600 seconds.
+    - `reorder` (boolean, default `false`): Preserve the exact client order (recommended: `false` to maintain order).
+  - `operations` (array, required, min 1): Array of operation objects. Same elementary operations as supported by `POST /v1.2/safes/operations`:
+    - `TRANSFER_EURe`, `TRANSFER_TOKEN` (ERC20, native, or Solana)
+    - `MONERIUM_CREATE_IBAN`, `MONERIUM_WITHDRAW_EURe`
+    - `SIGN_MESSAGE`
+    - `ENABLE_RECOVERY`, `CANCEL_RECOVERY`
+    - `AAVE_SUPPLY`, `AAVE_WITHDRAW`
+    - `SWAP_FROM_QUOTE`
+    - `BITCOIN_SEND` (non-EVM, special-case — handled outside MultiSend)
+    - `HYPERLIQUID_ENTER_VAULT`, `HYPERLIQUID_WITHDRAW_VAULT`, `HYPERLIQUID_WITHDRAW`, `HYPERLIQUID_DEPOSIT` (⚠️ not yet supported in batch mode, will throw `NOT_IMPLEMENTED`)
+    - If at least one `SWAP_FROM_QUOTE` is present, you must supply either a server-issued `quoteId` (pre-frozen) or explicit execution parameters (`aggregator`, `calldata`, `minOut`, `deadline`). The server validates and freezes quotes/constraints at intent time.
+
+- **200 Response**:
+```json
+{
+  "batchId": "b-7890abcdef123456",
+  "expiresAt": "2025-11-08T12:00:00.000Z",
+  "credentialRequestOptions": {
+    "rpId": "ibex.fi",
+    "challenge": "<base64url-encoded-challenge>",
+    "timeout": 60000,
+    "allowCredentials": [
+      {
+        "id": "<base64url-encoded-credential-id>",
+        "type": "public-key"
+      }
+    ],
+    "userVerification": "preferred",
+    "extensions": {
+      "credProps": true,
+      "uvm": true
+    },
+    "data": {
+      "userOpHash": "0x..."
+    }
+  }
+}
+```
+
+- **Example request** (two TRANSFER_EURe and one SWAP_FROM_QUOTE):
+```json
+{
+  "safeAddress": "0xA0C2503b722DF36e638323A139cd6961f3Ced151",
+  "chainId": 100,
+  "idempotencyKey": "client-req-2025-11-08-001",
+  "options": {
+    "atomic": true,
+    "autoApprove": true,
+    "ttlSec": 300,
+    "reorder": false
+  },
+  "operations": [
+    {
+      "type": "TRANSFER_EURe",
+      "to": "0x45e097ec63cea4b301ab7288bd5ec4e2f6679d6b",
+      "amount": "50.00"
+    },
+    {
+      "type": "SWAP_FROM_QUOTE",
+      "quoteId": "q-17fe72b1b1d44f4db7f5"
+    },
+    {
+      "type": "TRANSFER_EURe",
+      "to": "0x9E8f0F6dF7dD6bB6aB8B5A2f1E0C8E20F7bB1234",
+      "amount": "12.34"
+    }
+  ]
+}
+```
+
+- **Notes**:
+  - The server preserves the order of operations and computes a deterministic MultiSend payload for the frozen operations and options.
+  - If at least one `SWAP_FROM_QUOTE` is present, the quote/constraints are frozen at intent time and must remain valid until execution.
+  - Multiple operations are combined into a single MultiSend delegate call transaction, reducing gas costs compared to individual transactions.
+  - The `batchId` is used to reference the batch in subsequent calls to `batch-execute`.
+
+- **Common errors**:
+  - `400 VALIDATION`: Malformed operations array or invalid SWAP parameters.
+  - `401 UNAUTHORIZED`: Missing or invalid JWT.
+  - `403 FORBIDDEN`: The authenticated user has no access to the target Safe, or operation restricted by user lock state.
+  - `409 CONFLICT`: Attempting `ENABLE_RECOVERY` on a Safe where recovery is already enabled (idempotency safeguard).
+  - `410 GONE` / `422 EXPIRED`: Intent or quotes expired (`ttlSec`, `quoteValidUntil`).
+
+#### PUT `/v1.2/safes/operations/batch-execute` (auth required)
+- **Purpose**: Submit a previously prepared batch (by `batchId`) together with the WebAuthn `credential` obtained from the client's `startAuthentication` call.
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Blockchain
+- **Description**: On success, the batch is relayed to chain according to prepared wallet mode: SAFE_4337 (UserOperation) or EOA_7702 (delegated transaction). Execution is immediate upon successful validation.
+
+- **Request body**:
+  - `batchId` (string, required): Batch identifier returned by `POST /v1.2/safes/operations/batch-intent`.
+  - `credential` (object, required): The result of `startAuthentication({ optionsJSON: credentialRequestOptions })` from the WebAuthn library.
+
+- **200 Response**:
+```json
+{
+  "batchId": "b-7890abcdef123456",
+  "userOpHash": "0x...",
+  "status": "SUBMITTED"
+}
+```
+
+- **Example request**:
+```json
+{
+  "batchId": "b-7890abcdef123456",
+  "credential": {
+    "id": "Az...Ig",
+    "rawId": "Az...Ig",
+    "response": {
+      "authenticatorData": "...",
+      "clientDataJSON": "...",
+      "signature": "...",
+      "userHandle": null
+    },
+    "type": "public-key",
+    "clientExtensionResults": {}
+  }
+}
+```
+
+- **Notes**:
+  - Execution is immediate upon successful validation. If a nonce mismatch occurs, the server returns `409 STALE_NONCE`.
+  - You can poll the batch status using `GET /v1.2/safes/operations/batch/{batchId}/status` (if implemented).
+  - The batch operations are executed atomically: all succeed or all fail (if `atomic: true` was set in the intent).
+
+- **Common errors**:
+  - `400 VALIDATION`: Missing or invalid `credential`, or unknown `batchId`.
+  - `401 UNAUTHORIZED`: Missing or invalid JWT.
+  - `409 STALE_NONCE`: The Safe nonce changed since intent; re-run intent.
+  - `410 GONE` / `422 EXPIRED`: Intent or quotes expired.
+
+---
+
+## User Operations (detailed)
+
+### GET `/v1.2/users/me/operations` (auth required)
+- **Purpose**: Retrieve all onchain operations related to the authenticated user's wallet(s), grouped by Safe address.
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Users
+- **Description**: Returns operations grouped by Safe address, providing a clear view of all operations per Safe for the authenticated user.
+
+- **200 Response**:
+```json
+{
+  "data": {
+    "0xd676c6188195372EC269E9C2cAf815C56436A679": [
+      {
+        "id": "op_01HXYZ8K3S7W...",
+        "createdAt": "2025-08-24T16:58:19.903Z",
+        "updatedAt": "2025-08-24T16:58:19.903Z",
+        "index": 0,
+        "type": "TRANSFER_TOKEN",
+        "data": {},
+        "safeOperation": {
+          "userOpHash": "0xabc...123",
+          "createdAt": "2025-08-24T16:58:20.100Z",
+          "updatedAt": "2025-08-24T16:59:10.450Z",
+          "paymaster": "SPONSORED",
+          "status": "EXECUTED",
+          "error": null,
+          "safeAddress": "0xd676c6188195372EC269E9C2cAf815C56436A679",
+          "transactionHash": "0xdef...456",
+          "signatures": [
+            {
+              "createdAt": "2025-08-24T16:58:20.100Z",
+              "data": {},
+              "signerId": "l4yDVsiZVsJeaXKPbtfysg"
+            }
+          ]
+        }
+      }
+    ],
+    "0xAnotherSafeAddress...": [
+      {
+        "id": "op_01HXYZ8K3S7X...",
+        "createdAt": "2025-08-24T17:00:00.000Z",
+        "updatedAt": "2025-08-24T17:00:00.000Z",
+        "index": 0,
+        "type": "TRANSFER_EURe",
+        "data": {
+          "to": "0x...",
+          "amount": "100.00"
+        },
+        "safeOperation": {
+          "userOpHash": "0x...",
+          "status": "SIGNED",
+          "safeAddress": "0xAnotherSafeAddress...",
+          "transactionHash": null,
+          "signatures": []
+        }
+      }
+    ]
+  }
+}
+```
+
+- **Response fields**:
+  - `data` (object): Map of Safe addresses to arrays of operations.
+    - Each operation includes:
+      - `id`: Operation unique identifier.
+      - `createdAt`, `updatedAt`: Timestamps.
+      - `index`: Position of the operation within the batch (0-based).
+      - `type`: Operation type (e.g., `TRANSFER_TOKEN`, `TRANSFER_EURe`, `AAVE_SUPPLY`, etc.).
+      - `data`: Operation-specific data (e.g., `to`, `amount` for transfers).
+      - `safeOperation`: Associated Safe operation details:
+        - `userOpHash`: User operation hash (4337).
+        - `status`: Operation status (`CREATED`, `SIGNED`, `EXECUTED`, `CONFIRMED`, `FAILED`).
+        - `paymaster`: Paymaster used (`SPONSORED`).
+        - `safeAddress`: Safe address.
+        - `transactionHash`: On-chain transaction hash (null if not yet executed).
+        - `signatures`: Array of signatures applied to this operation.
+
+- **Notes**:
+  - Operations are ordered by `createdAt` descending (most recent first).
+  - Operations are grouped by Safe address, making it easy to see all operations per Safe.
+  - This endpoint only returns operations for Safes accessible by the authenticated user (based on `rpId` and `externalUserId`).
+
+- **Common errors**:
+  - `401 UNAUTHORIZED`: Missing or invalid JWT.
+
+---
+
+## Recovery (detailed)
+
+### GET `/v1.2/recovery/status/:safeAddress` (auth required)
+- **Purpose**: Retrieve the recovery status of a Safe with pending and executed recovery operations.
+- **Authentication**: JWT
+- **Tags**: EXTERNAL, Users
+- **Description**: Returns comprehensive recovery status including whether recovery is enabled, pending recovery operations, and executed recovery operations.
+
+- **Path parameters**:
+  - `safeAddress` (string, required): Safe address (EVM format, case-insensitive).
+
+- **200 Response**:
+```json
+{
+  "safeAddress": "0xd676c6188195372EC269E9C2cAf815C56436A679",
+  "recoveryEnabled": false,
+  "recoveryAddress": null,
+  "delay": null,
+  "pendingRecovery": false,
+  "canExecute": false,
+  "executeAfter": null,
+  "dataRecovery": false,
+  "pending": [],
+  "executed": [],
+  "userOpHash": null,
+  "transactionHash": null
+}
+```
+
+---
+
+### Enabling recovery (on-chain)
+
+**Enabling recovery** is done via **POST /v1.2/safes/operations** with an operation of type **`ENABLE_RECOVERY`**. The Safe **must already be deployed** and known to the API (otherwise you get "unknown safe address").
+
+**Flow:**
+
+1. **POST /v1.2/safes/operations** with body below → server returns `credentialRequestOptions` (WebAuthn challenge).
+2. User signs with passkey (e.g. `navigator.credentials.get()`).
+3. **PUT /v1.2/safes/operations** with body `{ "credential": <WebAuthn get result> }` → server executes the operation and returns `userOpHash`.
+
+**POST /v1.2/safes/operations body for ENABLE_RECOVERY:**
+
+```json
+{
+  "safeAddress": "0x...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "ENABLE_RECOVERY",
+      "firstName": "Jean",
+      "lastName": "Dupont",
+      "birthDate": "1990-01-15",
+      "birthCity": "Paris",
+      "birthCountry": "France"
+    }
+  ]
+}
+```
+
+**Required fields for `ENABLE_RECOVERY`:**
+- `type`: `"ENABLE_RECOVERY"`
+- `firstName`, `lastName`: strings
+- `birthDate`: string, format `YYYY-MM-DD`
+- `birthCity`, `birthCountry`: strings
+
+Personal data is used to register recovery with the IBEX Safe service after the on-chain transaction is confirmed. The backend will call the recovery module’s `enableModule` on the Safe; no `newOwners` or `threshold` are required in the request body for this operation.
+
+**Cancelling recovery:** use **POST /v1.2/safes/operations** with a single operation `{ "type": "CANCEL_RECOVERY" }` (no personal data). The Safe must already have recovery enabled.
+
+---
+
+### Summary
+
+| Goal | Endpoint | Body / notes |
+|------|----------|--------------|
+| Read recovery status | GET `/v1.2/recovery/status/:safeAddress` | No body |
+| Enable recovery (Safe must be deployed) | POST `/v1.2/safes/operations` | `safeAddress`, `chainId`, `operations`: [{ `type`: `"ENABLE_RECOVERY"`, `firstName`, `lastName`, `birthDate`, `birthCity`, `birthCountry` }] |
+| Submit signature after intent | PUT `/v1.2/safes/operations` | `credential` (WebAuthn get result) |
+| Cancel recovery | POST `/v1.2/safes/operations` | `operations`: [{ `type`: `"CANCEL_RECOVERY"` }] |
+
+There is **no** endpoint to enable recovery for a Safe that is not yet deployed (lazy mode). If the Safe is not in the backend (e.g. not yet created on-chain), the API returns an error (e.g. "unknown safe address") and you must deploy the Safe first, then use POST /v1.2/safes/operations with ENABLE_RECOVERY.
+
+---
+
+---
+
+## Safes (swap quote)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET | `/v1.2/safes/swap/quote` | JWT | **v1.2** |
+
+**Purpose:** Get a swap quote from COWSWAP and/or 1INCH. Uses the authenticated user’s first Safe as receiver when `safeAddress` is not provided.
+
+**Query parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sellTokenAddress` | string | Yes | Token to sell (EVM address) |
+| `buyTokenAddress` | string | Yes | Token to buy (EVM address) |
+| `amount` | string | Yes | Human-readable sell amount |
+| `chainId` | number | No | Chain (default from env) |
+| `safeAddress` | string | No | Safe address (default: user’s first Safe) |
+| `provider` | string | No | `COWSWAP`, `1INCH`, or `BOTH` (default) |
+
+**Response (200):** Quote(s) from COWSWAP and/or 1INCH (structure depends on provider). May include `quoteId`, `orderUid`, `buyAmount`, `sellAmount`, fee, validity, etc. Used with **SWAP_FROM_QUOTE** in POST /v1.2/safes/operations.
+
+---
+
+## Safes (automation module config)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| PUT | `/v1.2/safes/{safeAddress}/automation-module/config` | JWT | **v1.2** |
+
+**Purpose:** Update automation module configuration for a specific Safe.
+
+**Path parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `safeAddress` | string | Yes | Safe address (EVM `0x...`) |
+
+**Body (at least one field required):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `targetAddress` | string | No | Recipient/target address used by automation |
+| `mode` | string | No | `PERCENT_OF_RECEIVED` or `FIXED_AMOUNT`. |
+| `percentage` | number | No | Used with `mode=PERCENT_OF_RECEIVED` (`0` to `100`). |
+| `fixedAmount` | string \| null | No | Used with `mode=FIXED_AMOUNT` (token units, human-readable, e.g. `"10.5"`). Set `null` to clear. |
+| `maxWalletPercentage` | number | No | Optional cap (`0` to `100`) for `FIXED_AMOUNT`: effective transfer is capped by this % of wallet balance at execution time. |
+| `minIntervalMinutes` | number | No | Minimum delay between 2 automatic transfers (minutes). |
+| `periodCapAmount` | string \| null | No | Optional cumulative cap per period (token units, human-readable). Set `null` to disable the period cap. |
+| `periodCap` | string \| null | No | Optional predefined period for `periodCapAmount`: `HOURLY`, `DAILY`, `WEEKLY`, `MONTHLY`. |
+| `periodCapMinutes` | number \| null | No | Optional custom period (minutes) for `periodCapAmount`. Mutually exclusive with `periodCap`. |
+| `frequency` | string | No | `DAILY`, `WEEKLY`, `90_DAYS`, `NONE` |
+| `tokenAddress` | string | No | Token address used by automation |
+| `enabled` | boolean | No | Enable/disable automation module |
+
+**Validation rules:**
+- `percentage` is valid only with `mode=PERCENT_OF_RECEIVED`.
+- `fixedAmount` and `maxWalletPercentage` are valid only with `mode=FIXED_AMOUNT`.
+- Use either `periodCap` or `periodCapMinutes`, not both.
+- `periodCap` / `periodCapMinutes` require `periodCapAmount`.
+
+**Execution semantics:**
+- `minIntervalMinutes` defines the minimum delay between 2 automatic transfers.
+- `periodCapAmount` + (`periodCap` or `periodCapMinutes`) defines a rolling cumulative cap.
+- With `mode=FIXED_AMOUNT`, the effective transfer amount is:
+  - fixed amount,
+  - capped by `maxWalletPercentage` (if set),
+  - capped by remaining `periodCapAmount` (if configured),
+  - capped by current wallet balance.
+- With `mode=PERCENT_OF_RECEIVED`, the base amount is `%` of the received amount, then capped by period/balance constraints.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "updated": [
+    "moduleTransferMode",
+    "moduleFixedAmount",
+    "moduleMinIntervalMinutes",
+    "modulePeriodCapAmount",
+    "modulePeriodCapMinutes"
+  ]
+}
+```
+
+**Common errors:**
+
+| HTTP | Meaning |
+|------|---------|
+| `400` | Invalid `safeAddress`, invalid field combinations, or empty body (`No fields to update`) |
+| `404` | Safe not found for current chain scope |
+
+---
+
+## Safes operations
+
+All listed paths use the `/v1.2` API prefix.
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST | `/v1.2/safes/operations` | JWT | **v1.2** |
+| PUT  | `/v1.2/safes/operations` | JWT | **v1.2** |
+| POST | `/v1.2/safes/operations/batch-intent` | JWT | **v1.2** |
+| PUT  | `/v1.2/safes/operations/batch-execute` | JWT | **v1.2** |
+| GET  | `/v1.2/safes/operations/batch/:batchId/status` | JWT | **v1.2** |
+| GET  | `/v1.2/safes/operations/:userOpHash/status` | JWT | **v1.2** |
+
+**Constraint:** The Safe must belong to the authenticated user for the current `rpId`. Unknown Safe → 400 (e.g. "unknown safe address").
+
+---
+
+## Safes (multisig)
+
+There is no dedicated `POST /v1.2/safes/multisig` runtime endpoint.  
+Multisig owner/threshold changes are executed via the standard two-step flow:
+
+1. `POST /v1.2/safes/operations` (prepare WebAuthn challenge)
+2. `PUT /v1.2/safes/operations` (execute signed operation)
+
+Supported multisig operation types:
+
+| Type | Required fields |
+|------|-----------------|
+| `ADD_OWNER` | `owner`, `threshold` |
+| `REMOVE_OWNER` | `owner`, `threshold` |
+| `CHANGE_THRESHOLD` | `threshold` |
+
+Examples:
+
+```json
+{
+  "safeAddress": "0x...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "ADD_OWNER",
+      "owner": "0xNewOwnerAddress",
+      "threshold": 2
+    }
+  ]
+}
+```
+
+```json
+{
+  "safeAddress": "0x...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "REMOVE_OWNER",
+      "owner": "0xOwnerToRemove",
+      "threshold": 1
+    }
+  ]
+}
+```
+
+```json
+{
+  "safeAddress": "0x...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "CHANGE_THRESHOLD",
+      "threshold": 2
+    }
+  ]
+}
+```
+
+---
+
+### POST /v1.2/safes/operations (prepare)
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `safeAddress` | string | Yes | Safe (EVM) address |
+| `operations` | array | Yes | One or more operation objects (see table below) |
+| `chainId` | number | No | Chain (default from header or env) |
+| `signerId` | string | No | Specific signer to use |
+| `walletMode` | string | No | `SAFE_4337` or `EOA_7702` (override signer default mode) |
+| `eoaKeySelection` | object | No | 7702 key selector (`family`, `index`, optional `safeAddress`) |
+
+**Response (200):** `credentialRequestOptions` (WebAuthn challenge) and operation metadata. Client then calls **PUT /v1.2/safes/operations** with the signed `credential`.
+
+---
+
+### PUT /v1.2/safes/operations (execute)
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `credential` | object | Yes | WebAuthn assertion from `navigator.credentials.get()` |
+| `chainId` | number | No | Chain (optional) |
+
+**Response (200):**
+- SAFE_4337 example: `{ "userOpHash": "0x..." }`
+- EOA_7702 example: `{ "userOpHash": "0x...", "txHash": "0x...", "walletMode": "EOA_7702", "success": true }`
+
+---
+
+### Operation types and request body (per item in `operations`)
+
+| Type | Required fields (besides `type`) | Optional | Notes |
+|------|----------------------------------|----------|--------|
+| `TRANSFER_EURe` | `receiver`, `amount` | – | EURe transfer |
+| `TRANSFER_TOKEN` | `tokenAddress`, `to`, `amount` | `decimals` | ERC-20 transfer |
+| `SIGN_MESSAGE` | `message` | – | EIP-191 / personal_sign |
+| `ENABLE_RECOVERY` | `firstName`, `lastName`, `birthDate`, `birthCity`, `birthCountry` | – | Safe must be deployed; `birthDate` YYYY-MM-DD |
+| `CANCEL_RECOVERY` | – | – | Safe must have recovery enabled |
+| `SWAP_FROM_QUOTE` | `quoteId` | `orderUid` | Use quote from GET /v1.2/safes/swap/quote |
+| `AAVE_SUPPLY` | `amount` | `assetTicker`, `tokenAddress`, `decimals`, `referralCode`, `poolAddress` | Supply to Aave |
+| `AAVE_WITHDRAW` | `amount` | `assetTicker`, `tokenAddress`, `decimals`, `poolAddress` | Withdraw from Aave |
+| `ADD_OWNER` | `owner`, `threshold` | – | EVM address, new threshold |
+| `REMOVE_OWNER` | `owner`, `threshold` | – | EVM address, new threshold |
+| `CHANGE_THRESHOLD` | `threshold` | – | New signature threshold |
+| `MONERIUM_CREATE_IBAN` | (none) | – | Create Monerium IBAN for Safe |
+| `MONERIUM_WITHDRAW_EURe` | (context from Safe) | – | Withdraw EURe via Monerium |
+| `HYPERLIQUID_ENTER_VAULT`, `HYPERLIQUID_WITHDRAW_VAULT`, `HYPERLIQUID_WITHDRAW`, `HYPERLIQUID_DEPOSIT` | (see backend) | – | Hyperliquid operations |
+
+**Example – TRANSFER_TOKEN:**
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "TRANSFER_TOKEN",
+      "tokenAddress": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+      "to": "0xDEST...",
+      "amount": "1.23"
+    }
+  ]
+}
+```
+
+**Example – ENABLE_RECOVERY:** Safe must already be deployed.
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "ENABLE_RECOVERY",
+      "firstName": "Jean",
+      "lastName": "Dupont",
+      "birthDate": "1990-01-15",
+      "birthCity": "Paris",
+      "birthCountry": "France"
+    }
+  ]
+}
+```
+
+---
+
+### POST /v1.2/safes/operations/batch-intent
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `safeAddress` | string | Yes | Safe address |
+| `operations` | array | Yes | Same operation objects as above |
+| `chainId` | number | No | Chain |
+| `idempotencyKey` | string | No | Idempotency key |
+| `walletMode` | string | No | `SAFE_4337` or `EOA_7702` |
+| `eoaKeySelection` | object | No | 7702 key selector (`family`, `index`, optional `safeAddress`) |
+| `options` | object | No | `atomic`, `autoApprove`, `ttlSec`, `reorder` |
+
+**Response (200):** `credentialRequestOptions` (WebAuthn challenge) and `batchId`. Client then calls **PUT /v1.2/safes/operations/batch-execute** with `batchId` and `credential`.
+
+---
+
+### PUT /v1.2/safes/operations/batch-execute
+
+**Request body:**
+
+| Field | Type | Required |
+|-------|------|----------|
+| `batchId` | string | Yes |
+| `credential` | object | Yes (WebAuthn get result) |
+
+**Response (200):** Execution result (`userOpHash`, and in 7702 mode may include `txHash`, `walletMode`, `success`). Batch status can be checked via GET batch status.
+
+---
+
+### GET /v1.2/safes/operations/batch/:batchId/status
+
+**Path:** `batchId` from batch-intent response.
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batchId` | string | Same as path |
+| `safeAddress` | string \| null | Safe used |
+| `chainId` | number \| null | Chain |
+| `status` | string | e.g. PENDING, SIGNED, EXECUTED |
+| `userOpHash` | string | UserOperation hash |
+| `operations` | array | `{ index, type }` per op |
+| `expiresAt` | string \| null | Batch intent expiry |
+
+---
+
+### GET /v1.2/safes/operations/:userOpHash/status
+
+**Path:** `userOpHash` = hash returned by PUT operations or batch-execute.
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `userOpHash` | string | Operation hash |
+| `status` | string | PENDING, SIGNED, EXECUTED, FAILED, etc. |
+| `safeAddress` | string | Safe address |
+| `transactionHash` | string \| null | On-chain tx hash when executed |
+| `createdAt`, `updatedAt` | string | Timestamps |
+| `error` | string \| null | Error message if failed |
+| `Chains` | object | `{ id: chainId }` |
+| `Operations` | array | `{ index, type }` |
+
+---
+
+## Bitcoin
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| GET  | `/v1.2/safes/bitcoin/info` | JWT | **v1.2** |
+| GET  | `/v1.2/safes/bitcoin/fees` | JWT | **v1.2** |
+| GET  | `/v1.2/safes/bitcoin/utxos` | JWT | **v1.2** |
+| POST | `/v1.2/safes/bitcoin/psbt/build` | JWT | **v1.2** |
+| POST | `/v1.2/safes/bitcoin/tx/broadcast` | JWT | **v1.2** |
+| POST | `/v1.2/safes/bitcoin/send/prepare` | JWT | **v1.2** |
+
+---
+
+### GET /v1.2/safes/bitcoin/info
+
+**Query (optional):** `network`: `mainnet` \| `testnet`.
+
+**Response (200):** `{ "network": "mainnet"|"testnet", "rpc": { ... } }` where `rpc` is from `getblockchaininfo` (chain, blocks, etc.).
+
+---
+
+### GET /v1.2/safes/bitcoin/fees
+
+**Query (optional):** `network`: `mainnet` \| `testnet`.
+
+**Response (200):** `{ "feeRateSatVb": { "fast": <number>, "standard": <number>, "slow": <number> } }` (sat/vB from `estimatesmartfee` for 1, 6, 12 blocks).
+
+---
+
+### GET /v1.2/safes/bitcoin/utxos
+
+**Query:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | string | Yes | Bitcoin address to scan |
+| `network` | string | No | `mainnet` \| `testnet` |
+
+**Response (200):** `{ "address": "<address>", "network": "...", "utxos": [ { "txid", "vout", "value" (sat), "scriptPubKey" } ] }`.
+
+---
+
+### POST /v1.2/safes/bitcoin/psbt/build
+
+**Status:** Returns **501 Not Implemented**. Server-side PSBT building is not available; build PSBT client-side.
+
+**Body (documented for future use):** `inputs`, `outputs`, `changeAddress`, `sendAll`, `feeProfile` (`slow` \| `standard` \| `fast`), `network`.
+
+---
+
+### POST /v1.2/safes/bitcoin/tx/broadcast
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `rawtx` | string | Yes | Signed raw transaction (hex) |
+| `network` | string | No | `mainnet` \| `testnet` |
+
+**Response (200):** `{ "txid": "<txid>" }`.
+
+---
+
+### POST /v1.2/safes/bitcoin/send/prepare
+
+**Purpose:** Select UTXOs, estimate fee, compute change. Client uses result to build a PSBT.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `from` | string | Yes | Sender Bitcoin address |
+| `to` | string | Yes | Recipient address |
+| `amountSat` | number | No* | Amount in satoshis (*required if `sendAll` is false) |
+| `sendAll` | boolean | No | If true, send full balance (minus fee) |
+| `feeProfile` | string | No | `slow` \| `standard` \| `fast` (default `standard`) |
+| `network` | string | No | `mainnet` \| `testnet` |
+| `externalFeeSponsor` | boolean | No | If true, fee not taken from sender UTXOs (collaborative) |
+
+**Response (200):** `{ "from", "to", "amountSat", "feeSat", "inputsUsed", "outputs", "change", "externalFeeSponsor", "sponsorShortfallSat" }`. `inputsUsed` and `outputs` can be used to construct the PSBT.
+
+---
+
+## IBEx Safe (userdata)
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST | `/v1.2/ibexsafe/:verb` | JWT | **v1.2** |
+| GET  | `/v1.2/ibexsafe/:verb` | JWT | **v1.2** |
+| GET  | `/v1.2/ibexsafe/:verb/*` | JWT | **v1.2** |
+| POST | `/v1.2/ibexsafe/:verb/*` | JWT | **v1.2** |
+
+**Path:** `:verb` = upstream action, e.g. `userdata`, `validateEmail`, `confirmEmail`, `getRecovery`, etc. Body and response are forwarded to/from the IBEx Safe service.
+
+---
+
+### POST /v1.2/ibexsafe/userdata
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes* | User id (*often inferred from JWT) |
+| `data` | object | Yes (write) | Key-value map to store (e.g. `email`, `firstName`, `lastName`, `language`, `optin.newsletter`) |
+
+For read fallback: `{ "externalUserId", "data": {} }`.
+
+**Response (200):** Upstream shape (e.g. `{ "success": true }` or full userData). Relayed as-is.
+
+**Example:**
+```json
+{
+  "externalUserId": "<externalUserId>",
+  "data": {
+    "email": "jane.doe@example.com",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "language": "en",
+    "optin.newsletter": true
+  }
+}
+```
+
+---
+
+### POST /v1.2/ibexsafe/validateEmail
+
+**Body:** `{ "email", "externalUserId" }`. **Response:** Validation code dispatch confirmation (upstream format).
+
+---
+
+### POST /v1.2/ibexsafe/confirmEmail
+
+**Body:** `email`, `code`, `externalUserId`, optional `userDataName` (default `marketing.email`), `optinNews`, `optinNotifications`. **Response:** Upstream format.
+
+---
+
+## SEPA (IBEx SEPA proxy)
+
+User-facing wrapper around the IBEx SEPA stack (IBAN pool, payments, transactions, Verification of Payee). All endpoints require a JWT and operate on behalf of the authenticated user.
+
+No private user data is persisted in `ibex-fi-api`: the IBANs picked by a user and their unified address book live in IBEXSAFE under flat dot-namespaced keys, mirroring the conventions already in use (`optin.*`, `marketing.*`, `audit.history`, etc.):
+
+- `sepa.iban.<IBAN>` — JSON: `{ id, iban, formatted, bic, holderName, externStack, accountNumber, bankCode, branchCode, dateUsed, status, safeAddress?, blockchainId? }`
+- `addressbook.entry.<UUID>` — unified contact: `name`, optional `label`, `userValidated`, `crypto[]`, `ibans[]` (IBAN sub-rows are written **only** through `POST /v1.2/sepa/vop/verify` on **MTCH**)
+- `sepa.mandate.<MANDATE_ID>` — JSON mandate object: routing (`sourceIban`, `sourceName?`, `sourceBic?`, `destinationIban`, `destinationName?`, `destinationBic?`), allocation (`percent`), trigger (`all|whitelist` + advanced rules), signature hashes, status (`validated|suspended|cancelled`), timestamps, position
+- `sepa.mandate.order` — JSON string array preserving mandate order (`["<id1>", "<id2>", ...]`)
+
+Ownership of an IBAN is enforced by checking the IBAN data available in IBEXSAFE for the user (legacy `sepa.iban.<IBAN>` keys and/or provider-managed `tractial` IBAN records).
+
+| Method | Path | Auth | Available in |
+|--------|------|------|----------------|
+| POST   | `/v1.2/sepa/iban/add`            | JWT | **v1.2** |
+| GET    | `/v1.2/sepa/iban`                | JWT | **v1.2** |
+| POST   | `/v1.2/sepa/payments`            | JWT | **v1.2** |
+| PUT    | `/v1.2/sepa/payments`            | JWT | **v1.2** |
+| GET    | `/v1.2/sepa/transactions`        | JWT | **v1.2** |
+| GET    | `/v1.2/sepa/transactions/:id`    | JWT | **v1.2** |
+| POST   | `/v1.2/sepa/vop/verify`          | JWT | **v1.2** |
+| POST   | `/v1.2/sepa/mandates`            | JWT | **v1.2** |
+| GET    | `/v1.2/sepa/mandates`            | JWT | **v1.2** |
+| GET    | `/v1.2/sepa/mandates/:id`        | JWT | **v1.2** |
+| PATCH  | `/v1.2/sepa/mandates/:id/status` | JWT | **v1.2** |
+| POST   | `/v1.2/sepa/mandates/:id/cancel` | JWT | **v1.2** |
+
+---
+
+### POST /v1.2/sepa/iban/add
+
+Create an IBAN via IBEXSAFE (`POST /iban/add`) for the authenticated user and expose it to the v1.2 SEPA flow.
+Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quota (`Domain.maxIbanPerUser`, default `2`).
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `holderName`   | string | Yes | Name of the IBAN holder (used later as the reference value for VOP matching) |
+| `safeAddress`  | string | No  | Optional Safe wallet to associate with this IBAN. Must belong to the authenticated user (404 otherwise) |
+| `blockchainId` | number | No  | Optional chain id stored alongside `safeAddress` |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "iban": "FR7615589275690931505605139",
+    "formatted": "FR76 1558 9275 6909 3150 5605 139",
+    "bic": "AGRIFRPPXXX",
+    "holderName": "Alice Martin",
+    "externStack": "IBEXFIAPI",
+    "accountNumber": "09315056051",
+    "bankCode": "15589",
+    "branchCode": "27569",
+    "dateUsed": "2026-04-22T10:00:00.000Z",
+    "status": "active",
+    "safeAddress": "0xd676…",
+    "blockchainId": 100
+  },
+}
+```
+
+Errors: `400` missing `holderName` · `404` `safeAddress` provided but does not belong to the user · `429` quota reached (`maxIbanPerUser`) · upstream IBEXSAFE errors are forwarded (`403`/`404`/`409`/`502`, etc.).
+
+---
+
+### GET /v1.2/sepa/iban
+
+Returns the list of IBAN entries available in IBEXSAFE for the authenticated user (`sepa.iban.*` legacy keys and `tractial` provider records).
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 42, "iban": "FR76…", "bic": "AGRIFRPPXXX", "holderName": "Alice Martin", "status": "active", "safeAddress": "0xd676…", "blockchainId": 100, "dateUsed": "2026-04-22T10:00:00.000Z" }
+  ]
+}
+```
+
+---
+
+### POST /v1.2/sepa/payments
+
+Initiates a passkey-gated SEPA / SEPA Instant payment intent. The debtor IBAN **must** belong to the authenticated user.
+This endpoint does **not** execute the payment directly anymore: execution happens on `PUT /v1.2/sepa/payments` after WebAuthn verification.
+
+If the creditor IBAN is not present in any unified address book entry (`addressbook.entry.*`) with `vop=true` on the matching `ibans[]` row, a non-blocking warning is logged server-side (the payment is still attempted — VoP also runs upstream as part of the pipeline).
+
+**Request body:**
+
+```json
+{
+  "reference": "PAY-2026-001",
+  "channel": "SEPAINSTANT",
+  "amount": "150.00",
+  "currency": "EUR",
+  "remittanceInfo": "Invoice 2026-001",
+  "debtor":   { "name": "John Doe",   "iban": "FR7616748000014468183681821" },
+  "creditor": { "name": "Jane Smith", "iban": "FR7616748000011234037943644" }
+}
+```
+
+`channel` ∈ `SEPA | SEPAINSTANT`. `currency` is `EUR`.
+
+**Response (200):** payment approval intent + passkey challenge.
+
+```json
+{
+  "success": true,
+  "data": {
+    "approvalId": "6d8f6db4-53b0-43f3-87f3-35b68a68d2f7",
+    "approvalHash": "4ed4a8f8e472e6f8f2f38e6f9f58b3f5f89f7b2f17a6f70db0f0f1d4b2d2d40a",
+    "expiresAt": "2026-05-07T13:15:00.000Z",
+    "credentialRequestOptions": {
+      "challenge": "base64url-challenge",
+      "timeout": 60000,
+      "rpId": "demobaas-prat1.ibex.fi",
+      "userVerification": "required",
+      "allowCredentials": [{ "id": "credential-id", "type": "public-key", "transports": ["internal"] }]
+    }
+  }
+}
+```
+
+Errors: `400` missing fields or no PASSKEY signer · `403` debtor IBAN does not belong to the authenticated user.
+
+---
+
+### PUT /v1.2/sepa/payments
+
+Confirms and executes a previously initiated payment approval intent using WebAuthn authentication.
+
+**Request body:**
+
+```json
+{
+  "approvalId": "6d8f6db4-53b0-43f3-87f3-35b68a68d2f7",
+  "credential": {
+    "id": "credential-id",
+    "rawId": "credential-id",
+    "type": "public-key",
+    "response": {
+      "authenticatorData": "...",
+      "clientDataJSON": "...",
+      "signature": "...",
+      "userHandle": null
+    },
+    "clientExtensionResults": {}
+  }
+}
+```
+
+**Response (200):** approval + upstream payment payload.
+
+```json
+{
+  "success": true,
+  "data": {
+    "approvalId": "6d8f6db4-53b0-43f3-87f3-35b68a68d2f7",
+    "approvalHash": "4ed4a8f8e472e6f8f2f38e6f9f58b3f5f89f7b2f17a6f70db0f0f1d4b2d2d40a",
+    "payment": {
+      "success": true,
+      "message": "Payment processed",
+      "data": {
+        "transactionId": "uuid",
+        "reference": "PAY-2026-001",
+        "status": "completed",
+        "statusCode": "DONE"
+      }
+    }
+  }
+}
+```
+
+Errors: `400` invalid body · `404` unknown approval · `409` expired/already consumed/already executed approval · upstream SEPA execution errors are returned after proof persistence.
+
+---
+
+### GET /v1.2/sepa/transactions
+
+Lists SEPA transactions touching any IBAN owned by the authenticated user.
+
+| Query | Type | Description |
+|-------|------|-------------|
+| `iban`       | string | Optional. If provided, must belong to the user (else `403`). If omitted, the endpoint fans out to SEPA `GET /transactions?iban=<X>` for each user IBAN, merges and dedupes by `id`, sorts by `createdAt DESC`, paginates in memory |
+| `type`       | string | `SEPA_IN` or `SEPA_OUT` |
+| `status`     | string | `ask | pending | completed | cancelled | failed | rejected` |
+| `statusCode` | string | Upstream status code |
+| `search`     | string | Free-text search forwarded to SEPA |
+| `page`       | number | Default `1` |
+| `limit`      | number | Default `20`, max `200` |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": [ { "id": "uuid", "iban": "FR76…", "type": "SEPA_OUT", "status": "completed", "amount": "150.00", "currency": "EUR", "senderIban": "FR76…", "beneficiaryIban": "FR76…", "reference": "PAY-2026-001", "createdAt": "..." } ],
+  "pagination": { "total": 1234, "page": 1, "limit": 20, "pages": 62 }
+}
+```
+
+---
+
+### GET /v1.2/sepa/transactions/:id
+
+Returns the full SEPA transaction (including the linked SEPA message). Returns `404` when the transaction does not involve any IBAN owned by the authenticated user (intentionally hiding existence to avoid enumeration).
+
+**Response (200):** Upstream SEPA payload `{ success, data: { /* transaction + sepaMessage */ } }`.
+
+---
+
+### POST /v1.2/sepa/vop/verify
+
+Verification of Payee (synchronous, up to 30s upstream). The **unified** address book is updated **only** when `vopResult === "MTCH"`: then the IBAN row is stored under `addressbook.entry.<uuid>` — creates a **new** entry when `entryId` is omitted, or **merges** the IBAN row into the existing entry when `entryId` is set. For any other result (`CMTC`, `NMTC`, `NOAP`, `TIMEOUT`, `ERROR`, …) the API still returns **200** with `success: true`, `vop: false`, `data.entryId: null`, **`data.addressBookPersisted: false`**, **`data.addressBookRefusalReason: "VOP_NOT_MTCH"`**, and **`data.addressBookRefusalMessage`** (English sentence for UI); nothing is written to IBEXSAFE. If the IBAN already exists on another entry and the call would persist, the API returns **409 Conflict** unless the client passes that entry’s `entryId` to update it.
+
+**Request body:**
+
+| Field              | Type   | Required | Description |
+|--------------------|--------|----------|-------------|
+| `iban`             | string | Yes      | Beneficiary IBAN |
+| `name`             | string | Yes      | Beneficiary name to verify |
+| `respondingPspBic` | string | No       | Forwarded to SEPA |
+| `remittanceInfo`   | string | No       | Forwarded to SEPA |
+| `entryId`          | string (uuid) | No  | Existing address book entry; if omitted and the result is MTCH, a new entry is created with this IBAN |
+| `label`            | string | No       | Optional user comment stored on the **IBAN row** in IBEXSAFE (not sent to SEPA VOP). |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "entryId": "550e8400-e29b-41d4-a716-446655440000",
+    "addressBookPersisted": true,
+    "addressBookRefusalReason": null,
+    "addressBookRefusalMessage": null,
+    "vop": true,
+    "vopResult": "MTCH",
+    "matchedName": "Jean Dupont",
+    "requestId": "uuid",
+    "responseTimeMs": 412,
+    "iban": "LV93HABA0141234567890",
+    "name": "Jean Dupont"
+  }
+}
+```
+
+When verification does **not** match, `data.entryId` is **`null`**, **`addressBookPersisted`** is **`false`**, and the refusal fields explain that the address book was not updated:
+
+```json
+{
+  "success": true,
+  "data": {
+    "entryId": null,
+    "addressBookPersisted": false,
+    "addressBookRefusalReason": "VOP_NOT_MTCH",
+    "addressBookRefusalMessage": "Verification of Payee did not return MTCH; the beneficiary IBAN was not saved to your address book.",
+    "vop": false,
+    "vopResult": "NMTC",
+    "requestId": "uuid",
+    "responseTimeMs": 380,
+    "iban": "LV93HABA0141234567890",
+    "name": "Wrong Name"
+  }
+}
+```
+
+List or delete contacts via **`GET /v1.2/users/me/addressbook`** and **`DELETE /v1.2/users/me/addressbook/:id`** (or granular IBAN/crypto sub-routes).
+
+---
+
+### POST /v1.2/sepa/mandates
+
+Creates a SEPA mandate in IBEXSAFE and immediately pushes it to IBEx SEPA (`POST /api/v1/mandates` on `IBEX_SEPA_URL`).
+
+The source IBAN must belong to the authenticated user (IBEXSAFE-backed IBAN records). Signature data is provided by the client (typically after a `SIGN_MESSAGE` flow), and the API stores only hashes (`messageHash`, `signatureHash`) plus the signed message string.
+
+**Request body (example):**
+
+```json
+{
+  "sourceIban": "FR7615589275690931505605139",
+  "destinationIban": "FR7616748000011234037943644",
+  "destinationName": "Jean Dupont",
+  "destinationBic": "AGRIFRPPXXX",
+  "percent": 25,
+  "trigger": {
+    "mode": "whitelist",
+    "whitelistRules": [
+      { "kind": "senderIban", "operator": "in", "values": ["FR7616748000014468183681821"] },
+      { "kind": "amount", "operator": "between", "minAmount": "10.00", "maxAmount": "500.00", "currency": "EUR" }
+    ]
+  },
+  "signature": {
+    "message": "IBEX_SEPA_MANDATE_V1 ...",
+    "signature": "0xabcdef...",
+    "safeOperationUserOpHash": "0x1234..."
+  }
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "validated",
+    "position": 1,
+    "routing": {
+      "sourceIban": "FR76...",
+      "sourceName": "Alice Martin",
+      "sourceBic": "AGRIFRPPXXX",
+      "destinationIban": "FR76...",
+      "destinationName": "Jean Dupont",
+      "destinationBic": "AGRIFRPPXXX"
+    },
+    "allocation": { "percent": 25 },
+    "trigger": { "mode": "whitelist", "whitelistRules": [] },
+    "signature": {
+      "message": "IBEX_SEPA_MANDATE_V1 ...",
+      "messageHash": "sha256hex",
+      "signatureHash": "sha256hex",
+      "safeOperationUserOpHash": "0x1234...",
+      "signatureCapturedAt": "2026-04-26T11:00:00.000Z"
+    },
+    "createdAt": "2026-04-26T11:00:00.000Z",
+    "updatedAt": "2026-04-26T11:00:00.000Z",
+    "version": 1
+  },
+  "sepaSync": { "success": true }
+}
+```
+
+Errors: `400` invalid payload (`percent`, `trigger`, signature) · `403` source IBAN not owned by user · upstream IBEx SEPA errors are forwarded.
+
+### GET /v1.2/sepa/mandates
+
+Returns all mandates from IBEXSAFE (`sepa.mandate.*`) in `sepa.mandate.order`.
+
+### GET /v1.2/sepa/mandates/:id
+
+Returns one mandate by id (`404` if missing).
+
+### PATCH /v1.2/sepa/mandates/:id/status
+
+Updates mandate status with body `{ "status": "validated|suspended|cancelled" }`.
+
+Rules:
+- `cancelled` is terminal (cannot go back to `validated`/`suspended`).
+- Every status update is persisted to IBEXSAFE and pushed to IBEx SEPA.
+- For `cancelled`, the IBEx SEPA push uses the same `/api/v1/mandates` endpoint and supports minimal payload (`mandateKey`, `mandateId`, `status`).
+
+### POST /v1.2/sepa/mandates/:id/cancel
+
+Convenience endpoint for cancellation (equivalent to `PATCH .../status` with `cancelled`), and also triggers the minimal cancel payload push to IBEx SEPA.
+
+---
+
+## Domain key-value store (v1.2)
+
+Arbitrary **JSON object** per tenant (`rpId`), stored in table **`DomainKeyValueStore`**. Isolated by domain: only requests whose **`x-api-key`** matches the **`Domain.apiKey`** for the resolved **`rpId`** (same rules as other `API_KEY` routes: correct **Origin** / host → `ibex_rpId`) can read or write.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/v1.2/domain/kv` | **API_KEY** | Returns `{ "data": { ... } }`. Empty object if never written. |
+| PUT | `/v1.2/domain/kv` | **API_KEY** | Body `{ "data": { ... } }` — **replaces** the entire stored JSON for this domain. |
+| PATCH | `/v1.2/domain/kv` | **API_KEY** | Body `{ "patch": { "key": value, ... } }` — **shallow merge** at the top level into the existing object (creates row if missing). |
+
+**Limits:** serialized JSON size must not exceed **1 MiB** (1024×1024 bytes; PUT body or merged result after PATCH); otherwise **400**.
+
+**Concurrency:** last write wins if multiple clients PATCH/PUT concurrently.
+
+**Operations:** if the API returns **503** with a message about **migrations** / **DomainKeyValueStore**, the PostgreSQL table for this feature has not been created on that environment — run `npx prisma migrate deploy` (or your equivalent) against the API database, then retry.
+
+**Note:** This is **not** end-user userdata (no JWT); it is **tenant configuration** for whoever holds the domain API key (backend, CI, partner dashboard).
+
+**Webhook contract (recommended for system event fan-out):**
+
+```json
+{
+  "webhooks": {
+    "userEvents": {
+      "enabled": true,
+      "url": "https://tenant.example/webhooks/ibex",
+      "events": ["user.ky.updated", "user.iban.updated"],
+      "headers": {
+        "X-Webhook-Key": "replace-with-shared-secret"
+      },
+      "timeoutMs": 3000
+    }
+  }
+}
+```
+
+- `enabled` (optional, default `true`): enables/disables outgoing tenant webhooks.
+- `url` (required when enabled): HTTPS endpoint called by IBEx API.
+- `events` (optional): whitelist of events to send (`user.ky.updated`, `user.iban.updated`); if omitted, both events are eligible.
+- `headers` (optional): additional static HTTP headers.
+- `timeoutMs` (optional): request timeout in milliseconds (bounded server-side).
+
+---
+
+## Tenant Endpoints (`/v1.2/domain/*` and tenant read under `/v1.2/domains/*`)
+
+This section groups the domain-tenant endpoints intended for backend/server usage with a tenant domain key (`x-api-key`).
+
+### Tenant API key scope
+
+- The key is tenant-scoped: requests run under one resolved `rpId`.
+- `/v1.2/domain/*` is writable tenant config storage.
+- `/v1.2/domains/:rpId` and `/v1.2/domains/:rpId/quota` are read-only with API key, and only for the same `rpId` as the key.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/v1.2/domain/kv` | **API_KEY** | Read tenant JSON config blob. |
+| PUT | `/v1.2/domain/kv` | **API_KEY** | Replace tenant JSON config blob. |
+| PATCH | `/v1.2/domain/kv` | **API_KEY** | Merge top-level keys in tenant JSON config blob. |
+| GET | `/v1.2/domain/users/:id` | **API_KEY** | Read one tenant user by `externalUserId` (same user payload family as `/v1.2/users/me`). |
+| GET | `/v1.2/domain/chainid` | **API_KEY** | Tenant aggregate chain/wallet/module view (same payload shape as `/v1.2/users/me/chainid`). |
+| GET | `/v1.2/domains/:rpId` | **API_KEY** (or JWT admin) | Read tenant domain metadata and counters; API key only for same `rpId`. |
+| GET | `/v1.2/domains/:rpId/quota` | **API_KEY** (or JWT admin) | Read tenant quota stats; API key only for same `rpId`. |
+
+---
+
+## Domains (under `/v1.2/domains/`)
+
+Tenant **`Domain`** rows (WebAuthn **`rpId`**, feature flags, **`apiKey`** for `x-api-key`) are managed under **`/v1.2/domains/...`** on the same host as the other `/v1.2/...` routes.
+
+**Typical onboarding (two steps):** (1) call the **public** challenge endpoint, publish the DNS TXT record, then (2) call **`PUT /v1.2/domains`** with a **user JWT** so the server verifies TXT and returns **`rpId`**, **`apiKey`**, and **`primaryRpId`**.
+
+That is **not** a contradiction: step 1 does not create anything or attach anyone; step 2 both **proves DNS** and **names the human account** that will administer the tenant.
+
+### Why `GET …/dns-challenge` is public but `PUT /v1.2/domains` requires JWT
+
+| Call | What is being decided? | Auth |
+|------|------------------------|------|
+| **GET** `/v1.2/domains/dns-challenge` | Only: “here is the TXT record to publish, and here is the token the server will expect later.” No `Domain` row is written; **no user is chosen** as admin. Anyone can request instructions for a hostname — but **without DNS control** they cannot complete `PUT`. | **PUBLIC** — avoids forcing a JWT before you even know the operator has DNS access; works from scripts / runbooks. |
+| **PUT** `/v1.2/domains` | “DNS matches **and** this **authenticated user** becomes **domain admin** (DB relation `Domain` ↔ `User`).” The implementation **connects** the JWT subject’s user to the domain after verification. | **JWT** — the API must know **which account** receives admin rights; that identity does not exist on the GET. |
+
+DNS ownership is enforced when **PUT** runs (live TXT lookup). The GET does not “trust” the caller with a domain — it only issues a **time-bound challenge**; the **claim** happens on the authenticated PUT.
+
+### Summary — all `/v1.2/domains` endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|-----------|
+| GET | `/v1.2/domains/dns-challenge?domain=<fqdn>` | **PUBLIC** | Issue DNS TXT challenge (`_ibex-verify.<domain>` → `ibex-verify=<token>`); token stored in Redis (~1 h). |
+| PUT | `/v1.2/domains` | **JWT** | After TXT is visible to the API, verify DNS and **create** (or upgrade) the domain; connect authenticated user as **domain admin**; returns `rpId`, `apiKey`, `primaryRpId`. |
+| GET | `/v1.2/domains` | **JWT** | List domains where the user is an **admin** (metadata only — **no** `apiKey`). |
+| GET | `/v1.2/domains/:rpId` | **JWT** or **API_KEY** | Domain detail (flags, related domains, assets, admin list, user/signer/safe counts) — **no** `apiKey`; JWT requires admin rights, API key is limited to its own `rpId`. |
+| PUT | `/v1.2/domains/:rpId` | **JWT** | Update domain (`primaryRpId`, feature flags, `dailySignupQuota`, `maxIbanPerUser`, …) — admin only. |
+| GET | `/v1.2/domains/:rpId/quota` | **JWT** or **API_KEY** | Signup quota stats (rolling 24 h); JWT requires admin rights, API key is limited to its own `rpId`. |
+
+The other **five** routes require **`Authorization: Bearer <access_token>`** (same JWT family as `/v1.2/auth/*`). They are “admin” in the sense of **domain administrator** (user linked as `Domain` admin), not the separate **`/api/admin/…`** HTTP Basic admin UI.
+
+### GET `/v1.2/domains/dns-challenge`
+
+**Query (required):** `domain` — FQDN to verify (e.g. `app.example.com`).
+
+**Response (200):** `domain`, `record` (TXT hostname, e.g. `_ibex-verify.app.example.com`), `type` (`TXT`), `value` (full string including `ibex-verify=` prefix), `ttl` (seconds).
+
+**Errors:** **400** if `domain` missing.
+
+### PUT `/v1.2/domains`
+
+**Headers:** `Authorization: Bearer <token>`, `Content-Type: application/json` (and normal `Origin` / `rpId` resolution rules for authenticated routes).
+
+**Body (JSON):**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `domain` | Yes | Same FQDN as in the challenge; must match published TXT. |
+| `primaryRpId` | No | Omit → default primary (server `PASSKEY_RP_ID` linkage). **`null`** → standalone domain. Non-empty string → ROR link to an existing **standalone** primary domain. |
+
+**Response (200):** `rpId`, `apiKey` (tenant key for `x-api-key`), `primaryRpId` (nullable).
+
+**Typical errors:** no prior challenge / expired (**400**), DNS TXT missing or wrong value (**404** / **400**), domain already verified (**409**), invalid `primaryRpId` (**400**).
+
+### GET `/v1.2/domains`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):** JSON array of domains the user administers (`rpId`, `primaryRpId`, quotas, feature flags as strings/enums, `requireApiKeyForAuth`, `createdAt`, …).
+
+**`apiKey`:** **not** returned — tenant API keys are only exposed in the **`PUT /v1.2/domains`** response when the domain is created or DNS-upgraded; list/detail never echo them (same pattern as many APIs: show the secret once at issuance).
+
+### GET `/v1.2/domains/:rpId`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):** Full domain payload including `relatedDomains`, `assets`, `admins`, `users` / `signers` / `safes` counts, billing/partner fields when set.
+
+**`apiKey`:** **not** returned here either.
+
+**Errors:** **404** if not found or caller is not an admin of that `rpId`.
+
+### PUT `/v1.2/domains/:rpId`
+
+**Headers:** `Authorization: Bearer <token>`, `Content-Type: application/json`
+
+**Body:** optional fields only — `primaryRpId` (nullable), `isSwap`, `isLending`, `isTransfer`, `isPrivateLending` (booleans), `dailySignupQuota` (number), `maxIbanPerUser` (number, default `2`). Same ROR / subdomain validation rules as create.
+
+**Errors:** **400** if nothing to update; **404** if not admin.
+
+### GET `/v1.2/domains/:rpId/quota`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):** `quota`, `used`, `remaining`, `period` (signup quota service).
+
+**Errors:** **403** if not authorized for that domain’s quota.
+
+---
+
+## System routes (under `/system/`, no version prefix)
+
+> **Note:** System endpoints are internal and not versioned. They are documented separately in `docs/IBEXFIAPI_SYSTEM_ENDPOINTS.md`.
+> Cron, log purge, and chain sync endpoints are also under `/system/` (no `/v1.2/` prefix).
+
+### Key system routes
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET  | `/system/health` | PUBLIC | Health check; no body. |
+| GET  | `/system/system/info` | JWT | Server/environment info. |
+| POST | `/system/system/chains/sync` | API_KEY | Sync chain config (e.g. from admin). |
+| GET  | `/system/user-operations/pending` | API_KEY (CRON_INTERNAL) | List pending user operations. |
+| POST | `/system/user-operations/check` | API_KEY (CRON_INTERNAL) | Trigger check of pending user operations. |
+| GET  | `/system/lookup/user/:externalUserId` | API_KEY (ADMIN_API_KEY) | Check if an externalUserId exists. |
+| GET  | `/system/lookup/wallet/:address` | API_KEY (ADMIN_API_KEY) | Check if a wallet (Safe) address exists. |
+
+**Response shapes** for health/info/chains/user-operations are implementation-defined.
+
+---
+
+`ADMIN_API_KEY` details were moved to `docs/docs/IBEXFIAPI_ENDPOINTS_ADMIN_v1.2.md`.
+
+---
+
+### GET /system/lookup/user/:externalUserId
+
+Cross-domain lookup: check whether a given `externalUserId` exists in any domain.
+
+**Headers:** `x-api-key: <ADMIN_API_KEY>`
+
+**Path parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `externalUserId` | string | The external user identifier to look up. |
+
+**Response (200):**
+
+```json
+{
+  "exists": true,
+  "count": 2,
+  "users": [
+    {
+      "rpId": "app.example.com",
+      "userId": "clxyz...",
+      "createdAt": "2025-06-01T12:00:00.000Z"
+    },
+    {
+      "rpId": "other.example.com",
+      "userId": "clxyz...",
+      "createdAt": "2025-07-15T09:30:00.000Z"
+    }
+  ]
+}
+```
+
+If the user does not exist: `{ "exists": false, "count": 0, "users": [] }`.
+
+---
+
+### GET /system/lookup/wallet/:address
+
+Cross-domain lookup: check whether a given wallet (Safe) address exists, optionally filtered by chain.
+
+**Headers:** `x-api-key: <ADMIN_API_KEY>`
+
+**Path parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `address` | string | EVM address (checksum or lowercase — will be normalized). |
+
+**Query parameters (optional):**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `chainId` | number | Filter by blockchain ID (e.g. `100` for Gnosis, `42161` for Arbitrum). |
+
+**Response (200):**
+
+```json
+{
+  "exists": true,
+  "count": 1,
+  "wallets": [
+    {
+      "address": "0xAbCd...1234",
+      "blockchainId": 100,
+      "signerId": "abc123...",
+      "createdAt": "2025-05-20T08:00:00.000Z"
+    }
+  ]
+}
+```
+
+If the wallet does not exist: `{ "exists": false, "count": 0, "wallets": [] }`.
+
+Returns **400** if the address format is invalid.
+
+---
+
+## Admin (no version prefix)
+
+Admin routes are under `/api/` (e.g. `/api/admin/cron/vars`, `/api/admin/cron/stats`, `/api/admin/cron/force`, etc.). Most routes require **HTTP Basic** (same credentials as the admin UI) **or** an `admin_session` cookie after `POST /api/admin/login`. Cron sub-routes may accept `CRON_API_KEY` via `x-api-key`. See `src/routes/admin.ts` for the full list.
+
+### DevTools — KY (IBEXSAFE proxy)
+
+These endpoints provide operational tooling around KY/KYB test flows and state management (list state, read state, force state, start KYC/KYB enrollment).
+
+| Concern | Behaviour |
+|---------|-----------|
+| **Intended usage** | For admin operations and integration testing flows. Not part of the standard end-user API surface. |
+| **Auth — browser / operator** | Same as other admin API calls: **Basic** auth and/or **admin session** cookie (after `POST /api/admin/login`). |
+| **Auth — tenant (dApp server)** | Header **`x-api-key: <Domain.apiKey>`**. The API key maps to a tenant (`rpId`) and enforces tenant scoping (see below). |
+| **Scoping (Domain API key)** | Client-facing identifier is **`externalUserId`**. The API resolves internal `userId` server-side before calling IBEXSAFE. For Domain key auth, **list** responses only include KY rows whose `user_id` is linked to at least one `ExternalUser` for that `rpId`. **Read / set state / enroll** require an `externalUserId` linked to the tenant; otherwise **404**. |
+
+**Base URL:** same host as the public API (e.g. `https://passkeys-prat1.ibex.fi`).
+
+#### GET `/api/admin/devtools/ky/list`
+
+Paginated list of KY dossiers (proxied from `GET /devTools/kyList`).
+
+**Query parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `page` | integer | `1` | Page number (≥ 1). |
+| `limit` | integer | `20` | Page size (1–100). |
+
+**Response (200)** — same general shape as IBEXSAFE (admin / unscoped): `items[]`, `total`, `page`, `limit`, `totalPages`. Each item includes at least `user_id`, `entity_type`, `ky_state_id`, `ky_state_code` (upstream field names).
+
+**Domain API key:** upstream pages are aggregated (up to 15 × 100 rows), filtered to users belonging to the resolved `rpId`, then **re-paginated** using the requested `page` / `limit` (so `total` / `totalPages` reflect the filtered set).
+
+#### GET `/api/admin/devtools/ky/state/:externalUserId`
+
+Current KY state for one `externalUserId`. The API resolves internal `userId` and then proxies to `GET /devTools/kyState/{userId}`.
+
+**Path parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `externalUserId` | string | External user identifier (URL-encoded if needed). |
+
+**Response (200):** opaque JSON from IBEXSAFE (e.g. `state`, `kyStateCode`, `allowedStates`, …). **404** if `externalUserId` is unknown or (with Domain key) not in tenant.
+
+#### POST `/api/admin/devtools/ky/state`
+
+Force KY state transition (proxied from `POST /devTools/kyState`).
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier whose KY state should change. |
+| `newStateId` | integer | Yes | One of: `2` (submitted), `3` (additional info), `4` (rejected), `5` (accepted), `22` (signature requested), `23` (signature received), `55` (temporary block). |
+| `entityType` | string | Conditional | Required when `newStateId=5` and entity type is missing upstream. Allowed values: `individual`, `company`. |
+| `firstName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and first name is missing upstream. |
+| `lastName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and last name is missing upstream. |
+| `companyName` | string | Conditional | Required for `entityType=company` when `newStateId=5` and company name is missing upstream. |
+
+When forcing `newStateId=5`, the endpoint forwards identity enrichment fields to IBEXSAFE to satisfy accepted-state prerequisites used by IBAN provisioning.
+
+**Response (200):** upstream JSON (e.g. `success`, `fromStateId`, `toStateId`, …). **400** if payload validation fails (invalid `newStateId` or missing conditional identity fields required by upstream). **404** if `externalUserId` is unknown or not in tenant (Domain key).
+
+**Example (curl, Domain API key — development API only)**
+
+```http
+POST /api/admin/devtools/ky/state
+Host: passkeys-prat1.ibex.fi
+Content-Type: application/json
+x-api-key: <Domain.apiKey for your rpId>
+
+{"externalUserId":"YOUR_EXTERNAL_USER_ID","newStateId":5,"entityType":"individual","firstName":"John","lastName":"Doe"}
+```
+
+#### POST `/api/admin/devtools/ky/enroll`
+
+Create a KYC session through admin DevTools (proxied to upstream `POST /ky`).
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier; API resolves internal `userId` server-side. |
+| `language` | string | No | Preferred language (`en`, `fr`, ...). |
+| `email` | string | No | User e-mail forwarded upstream. |
+| `trustedEmail` | boolean | No | Optional trusted flag. |
+| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
+| `data` | object | No | Additional payload forwarded upstream. |
+
+**Response (200):** upstream KYC response (typically includes `sessionId`, `chatbotURL`, `chatbotFullURL`, ...). **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
+
+#### POST `/api/admin/devtools/kyb/enroll`
+
+Create a KYB enrollment through admin DevTools (proxied to upstream `POST /ky/enroll`).
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier; API resolves internal `userId` server-side. |
+| `email` | string | Yes | Contact e-mail for KYB flow. |
+| `companyRegistrationNumber` | string | Yes | Company identifier (e.g. SIREN). |
+| `submit` | boolean | No | Not supported on this endpoint. If set to `true`, upstream may return `400`. |
+| `idDocumentPage1` | string | No | Base64 data URL of first ID page. |
+| `idDocumentPage2` | string | No | Base64 data URL of second ID page. |
+| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
+| `returnUrl` | string | No | Return URL for deferred flow. |
+
+**Response (200):** upstream KYB session response (typically `pending_submit` or `pending_id_document` with `sessionId`/`chatbotFullURL`). Final submission is completed through the ID-document session flow. **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
+
+#### POST `/api/admin/devtools/sepa/topup`
+
+Development-only helper to trigger a direct SEPA payment topup without the user passkey approval flow.
+
+This endpoint:
+- only works when `NODE_ENV=development` (otherwise returns `404 Not Found`);
+- selects one configured faucet source pair at random from `FAUCET_SENDER_ADDRESS_IBAN_01..10` + `FAUCET_SENDER_ADDRESS_01..10`;
+- resolves source identity from DB (`Safe -> Signer -> ExternalUser`);
+- calls IBEX SEPA `POST /payments` directly (same upstream used by `/v1.2/sepa/payments`) and bypasses the app-level POST/PUT passkey approval flow.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `targetIban` | string | Yes | Beneficiary IBAN to top up. |
+| `targetName` | string | No | Beneficiary name (default: `IBEX User`). |
+| `amount` | string | No | Payment amount as string. |
+| `amountEur` | integer | No | Payment amount as integer EUR. If both `amount` and `amountEur` are missing, default is `1`. |
+| `channel` | string | No | `SEPA` (default) or `SEPAINSTANT`. |
+| `remittanceInfo` | string | No | Remittance information (default: `IBEX DevTools SEPA topup`). |
+
+**Response (200)**
+
+```json
+{
+  "success": true,
+  "data": {
+    "source": {
+      "slot": 3,
+      "suffix": "03",
+      "sourceIban": "FR7630001007941234567890185",
+      "safeAddress": "0xAbCdEf0123456789abcdef0123456789ABCDEF01"
+    },
+    "identity": {
+      "externalUserId": "user_ext_abc123",
+      "userId": "user_internal_42",
+      "rpId": "passkeys-prat1.ibex.fi"
+    },
+    "payment": {
+      "success": true,
+      "data": {
+        "transactionId": "..."
+      }
+    }
+  }
+}
+```
+
+Possible errors:
+- `404` when not in development mode;
+- `400` when no valid faucet source slot is configured or `targetIban` is missing;
+- `404` when no DB identity can be resolved for configured source slots;
+- `500` when upstream payment call fails.
+
+---
+
+## Compatibility summary
+
+- **v1.2** — Auth (sign-up, sign-in, email/recover, refresh), recovery, users (including **domain key-value** at `GET`/`PUT`/`PATCH /v1.2/domain/kv` with domain `x-api-key`), safes, operations, and related `api/…` usage documented above.
+- **Domains** (`/v1.2/domains/`): one **public** DNS challenge; create/list/update are **JWT** routes (domain admins); detail/quota can be read with **JWT** (admin) or tenant **`x-api-key`** scoped to its own `rpId`. See the **Domains** section above.
+- **System** (`/system/`): Internal endpoints (no version prefix) — cron, health, KYC/IBAN webhooks, lookups, log purge. See `docs/IBEXFIAPI_SYSTEM_ENDPOINTS.md`.
+
+Use **X-Blockchain-Id** (or `blockchainId` query) where chain scope is required (operations, recovery, and chain-scoped `api` routes).

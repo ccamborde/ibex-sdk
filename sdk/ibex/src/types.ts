@@ -85,6 +85,60 @@ export type IbexUserResourceQuery = {
   limit?: number;
 };
 
+export type IbexAddressBookCryptoRow = {
+  chainId: string | number;
+  address: string;
+} & JsonObject;
+
+export type IbexAddressBookIbanRow = {
+  iban: string;
+  vop?: string;
+  vopResult?: string;
+  matchedName?: string;
+  respondingPspBic?: string;
+  label?: string;
+  verifiedAt?: string;
+} & JsonObject;
+
+export type IbexAddressBookEntry = {
+  id: string;
+  name: string;
+  label?: string;
+  userValidated?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  crypto?: IbexAddressBookCryptoRow[];
+  ibans?: IbexAddressBookIbanRow[];
+} & JsonObject;
+
+export type IbexAddressBookListResponse = {
+  success?: boolean;
+  data?: IbexAddressBookEntry[];
+} & JsonObject;
+
+export type IbexAddressBookEntryResponse = {
+  success?: boolean;
+  data?: IbexAddressBookEntry;
+} & JsonObject;
+
+export type IbexCreateAddressBookEntryInput = {
+  name: string;
+  label?: string;
+  userValidated?: boolean;
+  crypto?: IbexAddressBookCryptoRow[];
+};
+
+export type IbexUpdateAddressBookEntryInput = {
+  name?: string;
+  label?: string;
+  userValidated?: boolean;
+};
+
+export type IbexAddAddressBookCryptoInput = {
+  chainId: string | number;
+  address: string;
+};
+
 export type IbexBalanceToken = {
   tokenAddress?: string;
   symbol?: string;
@@ -173,4 +227,238 @@ export type IbexUserLendingResponse = {
   limit?: number;
   totalPages?: number;
   data?: JsonObject[];
+} & JsonObject;
+
+export type IbexSepaIban = {
+  id?: string | number;
+  iban?: string;
+  formatted?: string;
+  bic?: string;
+  holderName?: string;
+  externStack?: string;
+  accountNumber?: string;
+  bankCode?: string;
+  branchCode?: string;
+  dateUsed?: string;
+  status?: string;
+  safeAddress?: string;
+  blockchainId?: string | number;
+} & JsonObject;
+
+export type IbexSepaAddIbanRequest = {
+  holderName: string;
+  safeAddress?: string;
+  blockchainId?: number;
+};
+
+export type IbexSepaAddIbanResponse = {
+  success?: boolean;
+  data?: IbexSepaIban;
+} & JsonObject;
+
+export type IbexSepaIbansResponse = {
+  success?: boolean;
+  data?: IbexSepaIban[];
+} & JsonObject;
+
+export type IbexSepaPaymentChannel = "SEPA" | "SEPAINSTANT";
+
+export type IbexSepaPaymentParty = {
+  name: string;
+  iban: string;
+} & JsonObject;
+
+export type IbexSepaCreatePaymentIntentRequest = {
+  reference: string;
+  channel: IbexSepaPaymentChannel;
+  amount: string;
+  currency: string;
+  remittanceInfo?: string;
+  debtor: IbexSepaPaymentParty;
+  creditor: IbexSepaPaymentParty;
+};
+
+export type IbexSepaCredentialRequestOptions = {
+  challenge?: string;
+  timeout?: number;
+  rpId?: string;
+  userVerification?: string;
+  allowCredentials?: JsonObject[];
+} & JsonObject;
+
+export type IbexSepaPaymentIntent = {
+  approvalId?: string;
+  approvalHash?: string;
+  expiresAt?: string;
+  credentialRequestOptions?: IbexSepaCredentialRequestOptions;
+} & JsonObject;
+
+export type IbexSepaCreatePaymentIntentResponse = {
+  success?: boolean;
+  data?: IbexSepaPaymentIntent;
+} & JsonObject;
+
+export type IbexSepaConfirmPaymentRequest = {
+  approvalId: string;
+  credential: JsonObject;
+};
+
+export type IbexSepaPaymentExecution = {
+  success?: boolean;
+  message?: string;
+  data?: JsonObject;
+} & JsonObject;
+
+export type IbexSepaConfirmPaymentData = {
+  approvalId?: string;
+  approvalHash?: string;
+  payment?: IbexSepaPaymentExecution;
+} & JsonObject;
+
+export type IbexSepaConfirmPaymentResponse = {
+  success?: boolean;
+  data?: IbexSepaConfirmPaymentData;
+} & JsonObject;
+
+export type IbexSepaTransactionType = "SEPA_IN" | "SEPA_OUT";
+
+export type IbexSepaTransactionsQuery = {
+  iban?: string;
+  type?: IbexSepaTransactionType;
+  status?: string;
+  statusCode?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type IbexSepaTransaction = {
+  id?: string;
+  iban?: string;
+  type?: string;
+  status?: string;
+  statusCode?: string;
+  amount?: string;
+  currency?: string;
+  senderIban?: string;
+  beneficiaryIban?: string;
+  reference?: string;
+  createdAt?: string;
+} & JsonObject;
+
+export type IbexSepaTransactionsPagination = {
+  total?: number;
+  page?: number;
+  limit?: number;
+  pages?: number;
+} & JsonObject;
+
+export type IbexSepaTransactionsResponse = {
+  success?: boolean;
+  data?: IbexSepaTransaction[];
+  pagination?: IbexSepaTransactionsPagination;
+} & JsonObject;
+
+export type IbexSepaTransactionDetailResponse = {
+  success?: boolean;
+  data?: JsonObject;
+} & JsonObject;
+
+export type IbexSepaMandateStatus = "validated" | "suspended" | "cancelled";
+
+export type IbexSepaMandateWhitelistRule = {
+  kind?: string;
+  operator?: string;
+  values?: string[];
+  minAmount?: string;
+  maxAmount?: string;
+  currency?: string;
+} & JsonObject;
+
+export type IbexSepaMandateTrigger = {
+  mode?: "all" | "whitelist";
+  whitelistRules?: IbexSepaMandateWhitelistRule[];
+} & JsonObject;
+
+export type IbexSepaMandateRouting = {
+  sourceIban?: string;
+  sourceName?: string;
+  sourceBic?: string;
+  destinationIban?: string;
+  destinationName?: string;
+  destinationBic?: string;
+} & JsonObject;
+
+export type IbexSepaMandateAllocation = {
+  percent?: number;
+} & JsonObject;
+
+export type IbexSepaMandateSignature = {
+  message?: string;
+  signature?: string;
+  messageHash?: string;
+  signatureHash?: string;
+  safeOperationUserOpHash?: string;
+  signatureCapturedAt?: string;
+} & JsonObject;
+
+export type IbexSepaMandate = {
+  id?: string;
+  status?: IbexSepaMandateStatus;
+  position?: number;
+  routing?: IbexSepaMandateRouting;
+  allocation?: IbexSepaMandateAllocation;
+  trigger?: IbexSepaMandateTrigger;
+  signature?: IbexSepaMandateSignature;
+  createdAt?: string;
+  updatedAt?: string;
+  version?: number;
+} & JsonObject;
+
+export type IbexSepaCreateMandateSignatureInput = {
+  message: string;
+  signature: string;
+  safeOperationUserOpHash?: string;
+};
+
+export type IbexSepaCreateMandateRequest = {
+  sourceIban: string;
+  destinationIban: string;
+  destinationName?: string;
+  destinationBic?: string;
+  percent: number;
+  trigger?: IbexSepaMandateTrigger;
+  signature: IbexSepaCreateMandateSignatureInput;
+};
+
+export type IbexSepaCreateMandateResponse = {
+  success?: boolean;
+  data?: IbexSepaMandate;
+  sepaSync?: JsonObject;
+} & JsonObject;
+
+export type IbexSepaMandatesResponse = {
+  success?: boolean;
+  data?: IbexSepaMandate[];
+} & JsonObject;
+
+export type IbexSepaMandateDetailResponse = {
+  success?: boolean;
+  data?: IbexSepaMandate;
+} & JsonObject;
+
+export type IbexSepaUpdateMandateStatusRequest = {
+  status: IbexSepaMandateStatus;
+};
+
+export type IbexSepaUpdateMandateStatusResponse = {
+  success?: boolean;
+  data?: IbexSepaMandate;
+  sepaSync?: JsonObject;
+} & JsonObject;
+
+export type IbexSepaCancelMandateResponse = {
+  success?: boolean;
+  data?: IbexSepaMandate;
+  sepaSync?: JsonObject;
 } & JsonObject;

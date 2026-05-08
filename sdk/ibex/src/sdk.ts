@@ -1,9 +1,30 @@
 import { browserStorage } from "./storage";
 import type {
+  IbexAddAddressBookCryptoInput,
+  IbexAddressBookEntryResponse,
+  IbexAddressBookListResponse,
   IbexBalancesQuery,
+  IbexCreateAddressBookEntryInput,
   IbexHttpError,
   IbexHttpMeta,
   IbexRefreshDetails,
+  IbexSepaAddIbanRequest,
+  IbexSepaAddIbanResponse,
+  IbexSepaCancelMandateResponse,
+  IbexSepaConfirmPaymentRequest,
+  IbexSepaConfirmPaymentResponse,
+  IbexSepaCreateMandateRequest,
+  IbexSepaCreateMandateResponse,
+  IbexSepaCreatePaymentIntentRequest,
+  IbexSepaCreatePaymentIntentResponse,
+  IbexSepaIbansResponse,
+  IbexSepaMandateDetailResponse,
+  IbexSepaMandatesResponse,
+  IbexSepaTransactionDetailResponse,
+  IbexSepaTransactionsQuery,
+  IbexSepaTransactionsResponse,
+  IbexSepaUpdateMandateStatusRequest,
+  IbexSepaUpdateMandateStatusResponse,
   IbexSdkConfig,
   IbexSdkStorage,
   IbexTokens,
@@ -17,6 +38,7 @@ import type {
   IbexUserSignersResponse,
   IbexUserTokensResponse,
   IbexUserTransactionsResponse,
+  IbexUpdateAddressBookEntryInput,
   JsonObject,
 } from "./types";
 import {
@@ -299,6 +321,176 @@ export class IbexSdk {
       this.authenticatedJsonFetch(path, token, { method: "GET" }),
     );
     return payload as IbexUserLendingResponse;
+  }
+
+  async getMeAddressBook(): Promise<IbexAddressBookListResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, { method: "GET" }),
+    );
+    return payload as IbexAddressBookListResponse;
+  }
+
+  async createMeAddressBookEntry(input: IbexCreateAddressBookEntryInput): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, {
+        method: "POST",
+        body: input,
+      }),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async updateMeAddressBookEntry(id: string, input: IbexUpdateAddressBookEntryInput): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}`, token, {
+        method: "PUT",
+        body: input,
+      }),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async deleteMeAddressBookEntry(id: string): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}`, token, { method: "DELETE" }),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async addMeAddressBookCrypto(id: string, input: IbexAddAddressBookCryptoInput): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/users/me/addressbook/${encodeURIComponent(id)}/crypto`, token, {
+        method: "POST",
+        body: input,
+      }),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async deleteMeAddressBookCrypto(id: string, chainId: string | number, address: string): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(
+        `/v1.2/users/me/addressbook/${encodeURIComponent(id)}/crypto/${encodeURIComponent(String(chainId))}/${encodeURIComponent(address)}`,
+        token,
+        { method: "DELETE" },
+      ),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async deleteMeAddressBookIban(id: string, iban: string): Promise<IbexAddressBookEntryResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(
+        `/v1.2/users/me/addressbook/${encodeURIComponent(id)}/ibans/${encodeURIComponent(iban)}`,
+        token,
+        { method: "DELETE" },
+      ),
+    );
+    return payload as IbexAddressBookEntryResponse;
+  }
+
+  async addSepaIban(payload: IbexSepaAddIbanRequest): Promise<IbexSepaAddIbanResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/iban/add", token, {
+        method: "POST",
+        body: payload,
+      }),
+    );
+    return response as IbexSepaAddIbanResponse;
+  }
+
+  async getSepaIbans(): Promise<IbexSepaIbansResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/iban", token, { method: "GET" }),
+    );
+    return payload as IbexSepaIbansResponse;
+  }
+
+  async createSepaPaymentIntent(
+    payload: IbexSepaCreatePaymentIntentRequest,
+  ): Promise<IbexSepaCreatePaymentIntentResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/payments", token, {
+        method: "POST",
+        body: payload,
+      }),
+    );
+    return response as IbexSepaCreatePaymentIntentResponse;
+  }
+
+  async confirmSepaPayment(payload: IbexSepaConfirmPaymentRequest): Promise<IbexSepaConfirmPaymentResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/payments", token, {
+        method: "PUT",
+        body: payload,
+      }),
+    );
+    return response as IbexSepaConfirmPaymentResponse;
+  }
+
+  async getSepaTransactions(query: IbexSepaTransactionsQuery = {}): Promise<IbexSepaTransactionsResponse> {
+    const path = this.buildPathWithQuery("/v1.2/sepa/transactions", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexSepaTransactionsResponse;
+  }
+
+  async getSepaTransactionById(id: string): Promise<IbexSepaTransactionDetailResponse> {
+    const normalizedId = encodeURIComponent(id);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/sepa/transactions/${normalizedId}`, token, { method: "GET" }),
+    );
+    return payload as IbexSepaTransactionDetailResponse;
+  }
+
+  async createSepaMandate(payload: IbexSepaCreateMandateRequest): Promise<IbexSepaCreateMandateResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/mandates", token, {
+        method: "POST",
+        body: payload,
+      }),
+    );
+    return response as IbexSepaCreateMandateResponse;
+  }
+
+  async getSepaMandates(): Promise<IbexSepaMandatesResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/mandates", token, { method: "GET" }),
+    );
+    return payload as IbexSepaMandatesResponse;
+  }
+
+  async getSepaMandateById(id: string): Promise<IbexSepaMandateDetailResponse> {
+    const normalizedId = encodeURIComponent(id);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}`, token, { method: "GET" }),
+    );
+    return payload as IbexSepaMandateDetailResponse;
+  }
+
+  async updateSepaMandateStatus(
+    id: string,
+    payload: IbexSepaUpdateMandateStatusRequest,
+  ): Promise<IbexSepaUpdateMandateStatusResponse> {
+    const normalizedId = encodeURIComponent(id);
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}/status`, token, {
+        method: "PATCH",
+        body: payload,
+      }),
+    );
+    return response as IbexSepaUpdateMandateStatusResponse;
+  }
+
+  async cancelSepaMandate(id: string): Promise<IbexSepaCancelMandateResponse> {
+    const normalizedId = encodeURIComponent(id);
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/sepa/mandates/${normalizedId}/cancel`, token, {
+        method: "POST",
+      }),
+    );
+    return response as IbexSepaCancelMandateResponse;
   }
 
   private async jsonFetch(path: string, options: JsonRequestOptions = {}): Promise<JsonObject> {

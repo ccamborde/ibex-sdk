@@ -15,6 +15,11 @@ Supported flows:
 - User monitored tokens (`GET /v1.2/users/me/tokens`)
 - User liquidity pools (`GET /v1.2/users/me/pools`)
 - User lending positions (`GET /v1.2/users/me/lending`)
+- Unified address book (`/v1.2/users/me/addressbook*`)
+- SEPA IBAN add/list (`POST /v1.2/sepa/iban/add`, `GET /v1.2/sepa/iban`)
+- SEPA payment intent/confirm (`POST /v1.2/sepa/payments`, `PUT /v1.2/sepa/payments`)
+- SEPA transactions list/detail (`GET /v1.2/sepa/transactions`, `GET /v1.2/sepa/transactions/:id`)
+- SEPA mandates create/list/detail/status/cancel (`/v1.2/sepa/mandates*`)
 - Local session management + external-user scoped storage cleanup
 
 ## Local setup
@@ -45,9 +50,47 @@ const signers = await ibex.getMeSigners();
 const tokens = await ibex.getMeTokens();
 const pools = await ibex.getMePools({ page: 1, limit: 20 });
 const lending = await ibex.getMeLending({ page: 1, limit: 20 });
+const addressBook = await ibex.getMeAddressBook();
+const sepaIbans = await ibex.getSepaIbans();
+const sepaTransactions = await ibex.getSepaTransactions({ page: 1, limit: 20 });
 
 await ibex.updateMeData({
   "optin.newsletter": true,
+});
+
+const created = await ibex.createMeAddressBookEntry({
+  name: "Alice",
+  label: "Friend",
+  crypto: [{ chainId: 42161, address: "0x1234..." }],
+});
+await ibex.addMeAddressBookCrypto(created.data?.id || "", {
+  chainId: 8453,
+  address: "0xabcd...",
+});
+
+const sepaIntent = await ibex.createSepaPaymentIntent({
+  reference: "PAY-2026-001",
+  channel: "SEPAINSTANT",
+  amount: "150.00",
+  currency: "EUR",
+  remittanceInfo: "Invoice 2026-001",
+  debtor: { name: "John Doe", iban: "FR7616748000014468183681821" },
+  creditor: { name: "Jane Smith", iban: "FR7616748000011234037943644" },
+});
+await ibex.confirmSepaPayment({
+  approvalId: sepaIntent.data?.approvalId || "",
+  credential: {
+    id: "credential-id",
+    rawId: "credential-id",
+    type: "public-key",
+    response: {
+      authenticatorData: "...",
+      clientDataJSON: "...",
+      signature: "...",
+      userHandle: null,
+    },
+    clientExtensionResults: {},
+  },
 });
 ```
 
@@ -63,6 +106,24 @@ await ibex.updateMeData({
 - `getMeTokens()`
 - `getMePools(query?)`
 - `getMeLending(query?)`
+- `getMeAddressBook()`
+- `createMeAddressBookEntry(input)`
+- `updateMeAddressBookEntry(id, input)`
+- `deleteMeAddressBookEntry(id)`
+- `addMeAddressBookCrypto(id, input)`
+- `deleteMeAddressBookCrypto(id, chainId, address)`
+- `deleteMeAddressBookIban(id, iban)`
+- `addSepaIban(payload)`
+- `getSepaIbans()`
+- `createSepaPaymentIntent(payload)`
+- `confirmSepaPayment(payload)`
+- `getSepaTransactions(query?)`
+- `getSepaTransactionById(id)`
+- `createSepaMandate(payload)`
+- `getSepaMandates()`
+- `getSepaMandateById(id)`
+- `updateSepaMandateStatus(id, payload)`
+- `cancelSepaMandate(id)`
 - `setAlertFlag(alertKey, enabled)` / `removeAlertFlag(alertKey)`
 - `refreshSession()` / `refreshSessionDetailed()`
 - `clearSessionAndScopedStorage()`
