@@ -1,0 +1,96 @@
+# IBEx.Fi Integration Widget — AI Quick Rules
+
+Use this quick file first, then read `docs/llms-full.txt` for full implementation details.
+
+## Mandatory API Behavior
+
+- Use `GET/POST /v1.2/auth/sign-in` first, then fallback to `GET/POST /v1.2/auth/sign-up`.
+- Prefer enriched sign-in completion payload when available (`includeBalance`, `includeTransactions`, `includeUserdata`) to reduce immediate post-login HTTP fan-out.
+- Persist tokens returned by auth immediately (`access_token`, `refresh_token`).
+- After auth success, complete session bootstrap atomically before parallel API calls:
+  - persist `access_token`, `refresh_token`, resolved `rpId`,
+  - set auth headers source for HTTP client/proxy,
+  - then run protected calls (`/users/me*`).
+- Do not refresh immediately after auth success.
+- Access token TTL is typically `expires_in = 3600` (~1 hour).
+
+## Refresh Rules (Critical)
+
+- On `401/403` from authenticated endpoints, run one refresh (`POST /v1.2/auth/refresh`) then retry original request once.
+- Use a global single-flight refresh lock so parallel failures share one refresh call.
+- Never refresh recursively on refresh route failures.
+- If refresh fails (`401/403`), clear session and switch UI state to disconnected.
+
+## Headers and Identity
+
+- Always send both auth headers on protected routes:
+  - `Authorization: Bearer <access_token>`
+  - `X-IBEx-Auth: Bearer <access_token>`
+- Send `X-Rp-Id` and `X-RpId` on all requests.
+- Apply the same rpId propagation rules to refresh routes (`POST /v1.2/auth/refresh`) in app proxy/session context.
+- Persist `externalUserId` from `/v1.2/users/me` and propagate it in your app session/proxy context for all user-scoped calls.
+- Persist normalized user data in local storage scoped by external user (`${externalUserId}_*`) and refresh UI from that cache first, then network.
+
+## Address Book + VoP Clarification
+
+- Use `POST /v1.2/users/me/addressbook` to create contacts.
+- For IBAN flow, send `iban` and `respondingPspBic` together.
+- Do not call any direct VoP endpoint for this flow.
+- VoP is executed internally by the addressbook create endpoint.
+- Do not invent demo/test data unless explicitly requested by the developer.
+- If demo addressbook seed is required, reuse repository-provided test values.
+
+## Proxy Requirement
+
+- Browser must call your own backend proxy (CORS-safe), not IBEx directly.
+- Proxy should forward query params and required headers, and normalize/strip incompatible encoding headers.
+
+## Realtime (When Required)
+
+- WS endpoint is `/ws` on the same API host (optionally `?blockchainId=<id>`).
+- Send auth as first WS message within 30s:
+  - `{ "type": "auth", "token": "<access_token>", "clientName": "<app>" }`
+- Handle close codes correctly:
+  - `4001`: auth timeout -> reconnect quickly and auth immediately
+  - `4002`: auth failed/expired token -> refresh once, then reconnect
+  - `4003`: duplicate active session -> do not auto-reconnect; close old session first
+- Handle at least these events:
+  - initial/session: `auth_success`, `connection_success`, `user_data`, `balance_data`, `transaction_data`
+  - push: `balance_update`, `new_transaction`, `fiat_balance_update`, `fiat_transaction_update`, `user_iban_updated`, `user_ky_updated`
+- `user_data` may be sent twice during initial burst; process idempotently and do not rely on strict event ordering.
+- If WS is healthy, use WS events as the primary refresh channel for balances/transactions/KY/IBAN updates.
+- On prolonged WS failure, fallback to HTTP (`/v1.2/users/me`, `/v1.2/users/me/balances`, `/v1.2/users/me/transactions`).
+
+## Data Paths Quick Tips
+
+- IBANs:
+  - HTTP: `users/me -> ibans.ibans[]`
+  - WS: `user_data -> data.ibans.data.ibans[]` + signal `user_iban_updated`
+- Wallets:
+  - HTTP: `users/me -> addresses.wallets[]`
+  - WS: `user_data -> data.addresses.data.wallets[]` (`auth_success.data.safeAddress` is only session safe)
+- Address book:
+  - HTTP: `users/me -> addressbook.data[]`
+  - WS snapshot: `user_data -> data.addressbook.data.data[]` (envelope mode)
+- Balances:
+  - HTTP: `users/me -> balances`
+  - WS: `balance_data`, `balance_update`, `fiat_balance_update`
+- Transactions:
+  - HTTP: `users/me -> transactions`
+  - WS: `transaction_data`, `new_transaction`, `fiat_transaction_update`
+
+## Chain Capability Gating
+
+- Query `/v1.2/chains/` and gate features per chain capability.
+- Do not assume a wallet on a chain implies feature availability on that chain.
+- Read user chain context from `/v1.2/users/me` first, especially:
+  - `chainid.defaultChainId`
+  - `chainid.chains[].chainId` + attached wallets
+- Join `users/me` chain ids with `/v1.2/chains/` by `id` to retrieve:
+  - chain display name (e.g. `"Gnosis"`)
+  - available modules (e.g. `billing`, `cowswap`, `recovery`, `automation`)
+- Use `/v1.2/chains/` to decide whether to show/enable:
+  - transfers,
+  - recovery,
+  - automation,
+  - multi-sig.

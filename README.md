@@ -13,7 +13,11 @@ Read these files carefully in this exact order:
 
 1. `env/.env.local` — configuration (IBEX_API_URL, PORT)
 2. `docs/IBEXFIAPI_INTEGRATION.md` — complete technical reference for the IBEx.Fi API
-3. `docs/llms-full.txt` — functional specification of the widget to build
+3. `docs/IBEXFIAPI_WEBSOCKET.md` — WebSocket protocol, events, close codes, reconnection rules
+4. `docs/llms.txt` — quick AI integration guardrails (read first)
+5. `docs/llms-full.txt` — full functional specification of the widget
+6. `AGENTS.md` — repository-level mandatory AI implementation rules
+7. `docs/ai-client-prompt-template.md` — reusable end-to-end task prompt template
 
 Then build a complete web widget that demonstrates IBEx.Fi integration:
 
