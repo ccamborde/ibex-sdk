@@ -34,6 +34,9 @@ Example: `https://passkeys-testnet.ibex.fi`
 | Refresh token | POST | `/v1.2/auth/refresh` | No (uses refresh_token in body) |
 | Read user data | GET | `/v1.2/users/me` | Yes |
 | Write user data | POST | `/v1.2/users/me` | Yes |
+| Create address book entry | POST | `/v1.2/users/me/addressbook` | Yes |
+
+`POST /v1.2/auth/sign-in` can return an enriched payload when supported by backend flags (for example `includeBalance`, `includeTransactions`, `includeUserdata`). Prefer this at login to reduce immediate extra HTTP reads.
 
 ### Required Headers
 
@@ -77,15 +80,20 @@ authenticate():
         result = POST /v1.2/auth/sign-up { credential: encodeAttestation(attestation) }
         tokens = extractTokens(result)
 
-    // Step 3: Store tokens — do NOT call /auth/refresh here
+    // Step 3: Commit session atomically — do NOT call /auth/refresh here
     save(tokens.access_token, tokens.refresh_token)
+    save(rpId)
+    setHttpAuthContext(access_token=tokens.access_token, rpId=rpId)
 
-    // Step 4: Load profile immediately with the new token
+    // Step 4: Only now start protected bootstrap calls
     profile = GET /v1.2/users/me (with auth headers)
     save(profile.externalUserId)
     for each (key, value) in profile.data:
         localStorage[externalUserId + "_" + key] = value
 ```
+
+Bootstrap rule:
+- Do not fire parallel `/users/me*` calls before session commit (`access_token`, `refresh_token`, `rpId`, auth-header context) is complete.
 
 ---
 
@@ -191,6 +199,25 @@ User ID may appear as `externalUserId`, `subject`, `sub`, or `id`.
 
 To delete: `{ "data": { "key": null } }`
 
+### POST /users/me/addressbook request body (important)
+
+```json
+{
+  "name": "Alice",
+  "label": "Friend",
+  "userValidated": true,
+  "crypto": [{ "chainId": 42161, "address": "0xabc..." }],
+  "iban": "FR7616748000011234037943644",
+  "respondingPspBic": "AGRIFRPPXXX",
+  "remittanceInfo": "Invoice 2026-001"
+}
+```
+
+Rules:
+- `iban` and `respondingPspBic` must be provided together for IBAN creation flow.
+- There is no separate client-side VoP endpoint to call here.
+- VoP is handled internally by `POST /v1.2/users/me/addressbook`.
+
 ---
 
 ## SESSION MANAGEMENT
@@ -208,10 +235,13 @@ User data from `/users/me` is cached locally with prefix:
 
 ### Refresh strategy
 
-1. On 401/403 from any authenticated endpoint → `POST /v1.2/auth/refresh` once
-2. Retry original request with new token
-3. If refresh also fails → clear everything, require re-authentication
-4. **Never** refresh right after sign-in/sign-up — the token is already valid
+1. On sign-in/sign-up success, persist both tokens and use the access token immediately.
+2. Access token is typically valid for `expires_in = 3600` (about 1 hour).
+3. On 401/403 from authenticated endpoints, run exactly one refresh attempt then retry once.
+4. Implement a single-flight/global refresh lock: concurrent 401s must await one refresh, not trigger multiple refresh calls in parallel.
+5. Never retry refresh recursively (do not refresh the refresh endpoint itself).
+6. If refresh fails (401/403), clear session + scoped cache and transition to disconnected state.
+7. Prefer cache-first UI refresh from scoped local storage (`${externalUserId}_*`), then merge network/WS updates.
 
 ### Session cleanup
 
@@ -248,6 +278,7 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 - Forward query strings to upstream
 - Forward `X-Rp-Id`, `X-RpId`, `Content-Type` headers
 - Convert `X-IBEx-Auth` to `Authorization` (send both to upstream)
+- Apply the same rpId/header propagation on refresh route (`POST /v1.2/auth/refresh`) in proxy/session layer
 - Strip `content-encoding`, `content-length`, `transfer-encoding` from responses
   (most HTTP clients auto-decompress; forwarding these headers causes decode errors)
 
@@ -283,6 +314,126 @@ The widget should include these panels:
 
 ---
 
+## REALTIME WEBSOCKET (RECOMMENDED FOR INTEGRATIONS)
+
+If the implementation includes realtime behavior, add an authenticated WS client that:
+
+1. connects to `wss://<api-host>/ws` (optionally `?blockchainId=<id>`)
+2. sends auth as first message within 30s:
+   - `{ "type": "auth", "token": "<JWT>", "clientName": "My App" }`
+3. listens to user-scoped updates
+4. handles at least:
+   - userdata updates
+   - balances updates
+   - transactions updates
+5. handles specific WS close/auth semantics:
+   - `4001` auth timeout -> reconnect and authenticate immediately
+   - `4002` auth failure/token expired -> refresh once then reconnect
+   - `4003` duplicate session -> do not auto-reconnect; close previous session first
+6. treats initial WS burst idempotently (`user_data` can be emitted twice; ordering is not strict)
+7. supports on-demand requests after auth:
+   - `get_balance`
+   - `get_transactions` (with optional `params` and `requestId`)
+8. avoids reconnect storms (backoff + single reconnect controller)
+9. falls back to HTTP (`/v1.2/users/me`, `/v1.2/users/me/balances`, `/v1.2/users/me/transactions`) when WS is unstable
+10. when WS is healthy, treats WS as the primary data refresh channel for balances, transactions, KY, and IBAN signals (HTTP becomes fallback/on-demand)
+
+## CHAIN CAPABILITY DISCOVERY
+
+Use `GET /v1.2/chains/` to build feature availability by chain before enabling actions in UI.
+
+- A user may have wallets on chains where certain services are unavailable.
+- Do not infer service availability from wallet presence alone.
+- Resolve chain context from `/v1.2/users/me`:
+  - `chainid.defaultChainId`
+  - `chainid.chains[].chainId` and associated wallets
+- Then join each user chain id with `/v1.2/chains/` entries (`id`) to get:
+  - chain name (`name`)
+  - module availability (`modules`)
+- Gate actions by chain capabilities from `/v1.2/chains/`, especially:
+  - transfer
+  - recovery
+  - automation
+  - multi-sig
+
+Example capability payload:
+
+```json
+[
+  {
+    "id": 100,
+    "name": "Gnosis",
+    "modules": {
+      "billing": true,
+      "cowswap": true,
+      "recovery": false,
+      "automation": false
+    }
+  }
+]
+```
+
+Practical rule:
+- if `users/me.chainid.chains` contains `chainId = 100` with wallets but `/v1.2/chains/` says `recovery: false`, hide/disable recovery actions for chain 100.
+
+## DATA LOOKUP CHEAT SHEET (HTTP + WS)
+
+Use this section to avoid guessing payload paths.
+
+### A) User IBANs
+
+- HTTP (`GET /v1.2/users/me`) typical path:
+  - `ibans.ibans[]` with rows like `{ iban, status }`
+- WS snapshot (`type = "user_data"`):
+  - `data.ibans.data.ibans[]` (section envelope: `{ status, data }`)
+- WS signal events:
+  - `type = "user_iban_updated"` with minimal payload (`data.iban = "changed"`) -> trigger refresh/read.
+
+### B) User wallets
+
+- HTTP (`GET /v1.2/users/me`) typical path:
+  - `addresses.wallets[]` (or `addresses.data.wallets[]` depending normalizer)
+  - rows typically include safe/wallet address and chain linkage.
+- WS snapshot (`type = "user_data"`):
+  - `data.addresses.data.wallets[]`
+- Related WS context:
+  - `type = "auth_success"` -> `data.safeAddress` is WS session safe only (not full wallet inventory).
+  - `type = "chainid_data"` -> default/supported chain metadata.
+
+### C) Address book entries
+
+- HTTP (`GET /v1.2/users/me`) typical path:
+  - `addressbook.data[]` with rows like `{ id, name, crypto, ibans }`
+- WS snapshot (`type = "user_data"`):
+  - `data.addressbook.data.data[]` in strict section-envelope mode
+  - if your normalizer flattens section envelopes, use normalized `addressbook.data[]`.
+
+### D) FIAT + CRYPTO balances
+
+- HTTP (`GET /v1.2/users/me`) typical path:
+  - `balances` section (commonly includes `type`, `identifier`, `balance.tokens[]`, etc.)
+- WS snapshot/response:
+  - `type = "balance_data"` with `data.mode = "initial"` or `"request"`
+- WS push updates:
+  - `type = "balance_update"` (crypto-oriented update)
+  - `type = "fiat_balance_update"` (fiat/IBAN-oriented update)
+
+### E) FIAT + CRYPTO transactions
+
+- HTTP (`GET /v1.2/users/me`) typical path:
+  - `transactions` section (commonly includes `type`, `total`, `data[]`)
+- WS snapshot/response:
+  - `type = "transaction_data"` with `data.mode = "initial"` or `"request"`
+- WS push updates:
+  - `type = "new_transaction"` (crypto-oriented)
+  - `type = "fiat_transaction_update"` (fiat-oriented)
+
+Implementation tip:
+- Prefer WS events for incremental refresh when WS is healthy.
+- Use HTTP reads as fallback/source-of-truth recovery when WS is unavailable or desynced.
+
+---
+
 ## COMMON PITFALLS
 
 | Problem | Cause | Solution |
@@ -291,9 +442,16 @@ The widget should include these panels:
 | `ERR_CONTENT_DECODING_FAILED` | Proxy forwards `content-encoding` but body is already decompressed | Strip encoding headers from proxied responses |
 | WebAuthn TypeError on extensions | PRF values are base64url strings, not ArrayBuffer | Decode all PRF values to ArrayBuffer before WebAuthn call |
 | 401 on `/users/me` after successful auth | Missing auth headers or wrong header name | Send both `Authorization` AND `X-IBEx-Auth` |
+| Repeated 401 on `/auth/refresh` with parallel API calls | Multiple requests trigger refresh concurrently | Add a global refresh lock + one shared in-flight refresh promise |
+| 401 immediately after `AUTH_COMPLETE_OK` | Protected calls started before session context commit (token/rpId/header source race) | Commit session atomically first, then start `/users/me*` bootstrap calls |
 | 400 `rpId is not valid` on POST `/users/me` | rpId not registered in IBEXSAFE | Register rpId or use a registered one |
 | Token appears valid but fails | `wallet=passkeys` query param missing from options request | Always include `?wallet=passkeys&rpId=<rpId>` |
 | Stale session on page reload | Old token in storage, no validation | On init, try GET `/users/me`; if 401, clear session |
+| 401 on many `/users/me/*` endpoints despite valid auth flow | Missing external user context in app proxy/session layer | Persist `externalUserId` from `/users/me` and propagate it in your own backend session model for all proxied calls (including refresh context) |
+| WS reconnect loop with repeated auth failures | Reconnect attempts happen without valid refreshed token | Use one refresh path, then reconnect once with backoff; if still unauthorized, force logout |
+| WS `ALREADY_CONNECTED` errors | Multiple concurrent sockets for same `(externalUserId, rpId)` | Maintain one active socket per user/rpId and close old socket on re-login before opening a new one |
+| Missing realtime updates after connect | Client expects fixed event order or one-shot `user_data` | Handle initial burst idempotently; do not rely on strict ordering; accept duplicate `user_data` |
+| Feature shown on wrong chain | UI assumes wallet presence means service support | Query `/v1.2/chains/` and gate transfer/recovery/automation/multi-sig by chain capability |
 | Functions not accessible from HTML | ES module scope isolation | Use event listeners, not inline `onclick` |
 
 ---
@@ -309,5 +467,18 @@ The widget should include these panels:
 - [ ] Both `Authorization` and `X-IBEx-Auth` sent for `/users/me`
 - [ ] No refresh after successful auth
 - [ ] 401/403 triggers one refresh attempt, then session clear
+- [ ] Refresh flow is single-flight (no parallel refresh storms)
+- [ ] Refresh endpoint itself never enters refresh-retry loop
 - [ ] Scoped localStorage uses `${externalUserId}_` prefix
+- [ ] `externalUserId` is persisted and propagated in the app session/proxy context
+- [ ] `POST /users/me/addressbook` sends `iban` + `respondingPspBic` together when using IBAN flow
+- [ ] No direct client call to a VoP endpoint for address book creation
+- [ ] WS listener handles userdata/balances/transactions updates when realtime is required
+- [ ] WS reconnect uses refresh + backoff, without reconnect storms
+- [ ] WS auth is sent as first message (`type: "auth"`) within 30 seconds
+- [ ] WS close-code handling includes 4001/4002/4003 specific behavior
+- [ ] Only one WS session per `(externalUserId, rpId)` is active at a time
+- [ ] Initial WS burst is handled idempotently (duplicate `user_data` tolerated)
+- [ ] `GET /v1.2/chains/` is used to gate transfer/recovery/automation/multi-sig per chain
+- [ ] UI uses scoped local cache (`${externalUserId}_*`) and incremental refresh strategy
 - [ ] UI shows real-time event log of API interactions

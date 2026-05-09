@@ -219,6 +219,14 @@ Expected SDK result:
   - `label?: string`
   - `userValidated?: boolean`
   - `crypto?: Array<{ chainId, address }>`
+  - `iban?: string` (must be paired with `respondingPspBic`)
+  - `respondingPspBic?: string` (must be paired with `iban`)
+  - `remittanceInfo?: string`
+- SDK behavior:
+  - throws a client-side error if only one of `iban` / `respondingPspBic` is provided.
+- Integration note:
+  - do not call a separate VoP endpoint from the SDK for this flow.
+  - VoP is handled internally by `POST /v1.2/users/me/addressbook` when `iban` + `respondingPspBic` are provided.
 
 ### `updateMeAddressBookEntry(id, input)`
 
@@ -357,6 +365,10 @@ Expected SDK result:
 ## Session Lifecycle and Retry Behavior
 
 - SDK stores session tokens in configured storage.
+- On successful sign-in/sign-up, API already returns a valid JWT session:
+  - `access_token` (typically `expires_in = 3600`, i.e. ~1 hour)
+  - `refresh_token`
+- Do not call refresh immediately after auth success. Use the issued `access_token` first.
 - For authenticated endpoints, SDK retries once automatically on `401`/`403`:
   1. refresh via `POST /v1.2/auth/refresh`
   2. replay original request with new token
@@ -368,7 +380,6 @@ Expected SDK result:
 The following API families are not wrapped by high-level SDK methods in `sdk/ibex` yet:
 
 - email validation/confirmation routes
-- VoP routes under `/v1.2/sepa/*`
 - domain/admin/config endpoints
 - safe-provision and recovery operation routes
 

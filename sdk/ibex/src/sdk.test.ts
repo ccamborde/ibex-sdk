@@ -215,6 +215,38 @@ describe("IbexSdk address book endpoints", () => {
     expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("DELETE");
   });
 
+  it("requires iban and respondingPspBic together on create entry", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, { success: true, data: { id: "entry-1" } }));
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    await expect(
+      sdk.createMeAddressBookEntry({
+        name: "Alice",
+        iban: "FR7616748000011234037943644",
+      }),
+    ).rejects.toThrow("`iban` and `respondingPspBic` must be provided together.");
+
+    await expect(
+      sdk.createMeAddressBookEntry({
+        name: "Alice",
+        respondingPspBic: "AGRIFRPPXXX",
+      }),
+    ).rejects.toThrow("`iban` and `respondingPspBic` must be provided together.");
+
+    await sdk.createMeAddressBookEntry({
+      name: "Alice",
+      iban: "FR7616748000011234037943644",
+      respondingPspBic: "AGRIFRPPXXX",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("calls crypto and iban delete endpoints with encoded path params", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi

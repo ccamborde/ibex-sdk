@@ -29,7 +29,7 @@ This document describes the IBEX FI API **v1.2** — routes under the **`/v1.2/`
 | Recovery        | GET status/:safeAddress               | ✓    |
 | Safes wallets   | POST `/safes/:safeAddress/wallets` | ✓   |
 | Safes           | automation-module/config, swap/quote, operations, batch-*, bitcoin, ibexsafe | ✓    |
-| SEPA            | iban/add, payments, transactions, vop/verify | ✓    |
+| SEPA            | iban/add, payments, transactions, mandates | ✓    |
 | Domains (`/v1.2/domains/`) | dns-challenge, PUT create, list, detail, update, quota | ✓ |
 | Domain KV (`/v1.2/domain/kv`) | GET/PUT/PATCH JSON store (API key only) | ✓    |
 | System (`/system/`) | health, cron, logs purge, user-operations/*, lookup/* | – (no version prefix) |
@@ -1016,14 +1016,20 @@ Returns available lending pools for the authenticated user's chain (proxy to BCR
 
 - `id`, `name`, optional `label`, `userValidated`, `createdAt`, `updatedAt`
 - `crypto`: `[{ "chainId", "address" }, …]` — at most **50** per entry; **global** uniqueness of `(chainId, address)` across all entries for the user
-- `ibans`: `[{ "iban", "vop", "vopResult?", "matchedName?", "respondingPspBic?", "label?", "verifiedAt" }, …]` — populated **only** via `POST /v1.2/sepa/vop/verify` when VOP returns **MTCH** (optional `entryId` to attach to an existing entry); **global** uniqueness of `iban` across all entries
+- `ibans`: `[{ "iban", "vop", "vopResult?", "matchedName?", "respondingPspBic?", "label?", "verifiedAt" }, …]` — populated by VOP verification flow when upstream returns **MTCH**; **global** uniqueness of `iban` across all entries
+
+To add an IBAN at contact creation, clients should provide both:
+- the beneficiary IBAN (`iban`)
+- the beneficiary bank BIC (`respondingPspBic`)
+
+VOP calls (direct or internal) are rate-limited to **10 failed verifications per user per UTC day**. Successful (`MTCH`) verifications do not consume this quota. When reached, API returns `429`.
 
 On EVM chains (`EVM_CHAINS_ISSAFEWALLET`), crypto `address` must be valid `0x` + 40 hex and is checksum-normalized. At most **500** entries per user.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1.2/users/me/addressbook` | List entries (`success` + `data[]`). |
-| POST | `/v1.2/users/me/addressbook` | Body `{ "name", "label?", "userValidated?", "crypto?" }`. Creates an entry **without** IBANs (add IBANs via VOP). |
+| POST | `/v1.2/users/me/addressbook` | Body `{ "name", "label?", "userValidated?", "crypto?", "iban?", "respondingPspBic?", "remittanceInfo?" }`. Creates an entry; if `iban` + `respondingPspBic` are provided, VOP is executed internally and the IBAN row is attached only on `MTCH` (otherwise `400` and no entry is created). Daily VOP cap: **10 failed verifications/user/day (UTC)**, then `429`. |
 | PUT | `/v1.2/users/me/addressbook/:id` | Partial update: `name`, `label`, `userValidated` only. |
 | DELETE | `/v1.2/users/me/addressbook/:id` | Tombstones `addressbook.entry.<id>`. |
 | POST | `/v1.2/users/me/addressbook/:id/crypto` | Body `{ "chainId", "address" }` — append one crypto row. |
@@ -3042,7 +3048,7 @@ User-facing wrapper around the IBEx SEPA stack (IBAN pool, payments, transaction
 No private user data is persisted in `ibex-fi-api`: the IBANs picked by a user and their unified address book live in IBEXSAFE under flat dot-namespaced keys, mirroring the conventions already in use (`optin.*`, `marketing.*`, `audit.history`, etc.):
 
 - `sepa.iban.<IBAN>` — JSON: `{ id, iban, formatted, bic, holderName, externStack, accountNumber, bankCode, branchCode, dateUsed, status, safeAddress?, blockchainId? }`
-- `addressbook.entry.<UUID>` — unified contact: `name`, optional `label`, `userValidated`, `crypto[]`, `ibans[]` (IBAN sub-rows are written **only** through `POST /v1.2/sepa/vop/verify` on **MTCH**)
+- `addressbook.entry.<UUID>` — unified contact: `name`, optional `label`, `userValidated`, `crypto[]`, `ibans[]` (IBAN sub-rows are written only by the VOP verification flow on **MTCH**)
 - `sepa.mandate.<MANDATE_ID>` — JSON mandate object: routing (`sourceIban`, `sourceName?`, `sourceBic?`, `destinationIban`, `destinationName?`, `destinationBic?`), allocation (`percent`), trigger (`all|whitelist` + advanced rules), signature hashes, status (`validated|suspended|cancelled`), timestamps, position
 - `sepa.mandate.order` — JSON string array preserving mandate order (`["<id1>", "<id2>", ...]`)
 
@@ -3056,7 +3062,6 @@ Ownership of an IBAN is enforced by checking the IBAN data available in IBEXSAFE
 | PUT    | `/v1.2/sepa/payments`            | JWT | **v1.2** |
 | GET    | `/v1.2/sepa/transactions`        | JWT | **v1.2** |
 | GET    | `/v1.2/sepa/transactions/:id`    | JWT | **v1.2** |
-| POST   | `/v1.2/sepa/vop/verify`          | JWT | **v1.2** |
 | POST   | `/v1.2/sepa/mandates`            | JWT | **v1.2** |
 | GET    | `/v1.2/sepa/mandates`            | JWT | **v1.2** |
 | GET    | `/v1.2/sepa/mandates/:id`        | JWT | **v1.2** |
@@ -3250,66 +3255,6 @@ Lists SEPA transactions touching any IBAN owned by the authenticated user.
 Returns the full SEPA transaction (including the linked SEPA message). Returns `404` when the transaction does not involve any IBAN owned by the authenticated user (intentionally hiding existence to avoid enumeration).
 
 **Response (200):** Upstream SEPA payload `{ success, data: { /* transaction + sepaMessage */ } }`.
-
----
-
-### POST /v1.2/sepa/vop/verify
-
-Verification of Payee (synchronous, up to 30s upstream). The **unified** address book is updated **only** when `vopResult === "MTCH"`: then the IBAN row is stored under `addressbook.entry.<uuid>` — creates a **new** entry when `entryId` is omitted, or **merges** the IBAN row into the existing entry when `entryId` is set. For any other result (`CMTC`, `NMTC`, `NOAP`, `TIMEOUT`, `ERROR`, …) the API still returns **200** with `success: true`, `vop: false`, `data.entryId: null`, **`data.addressBookPersisted: false`**, **`data.addressBookRefusalReason: "VOP_NOT_MTCH"`**, and **`data.addressBookRefusalMessage`** (English sentence for UI); nothing is written to IBEXSAFE. If the IBAN already exists on another entry and the call would persist, the API returns **409 Conflict** unless the client passes that entry’s `entryId` to update it.
-
-**Request body:**
-
-| Field              | Type   | Required | Description |
-|--------------------|--------|----------|-------------|
-| `iban`             | string | Yes      | Beneficiary IBAN |
-| `name`             | string | Yes      | Beneficiary name to verify |
-| `respondingPspBic` | string | No       | Forwarded to SEPA |
-| `remittanceInfo`   | string | No       | Forwarded to SEPA |
-| `entryId`          | string (uuid) | No  | Existing address book entry; if omitted and the result is MTCH, a new entry is created with this IBAN |
-| `label`            | string | No       | Optional user comment stored on the **IBAN row** in IBEXSAFE (not sent to SEPA VOP). |
-
-**Response (200):**
-
-```json
-{
-  "success": true,
-  "data": {
-    "entryId": "550e8400-e29b-41d4-a716-446655440000",
-    "addressBookPersisted": true,
-    "addressBookRefusalReason": null,
-    "addressBookRefusalMessage": null,
-    "vop": true,
-    "vopResult": "MTCH",
-    "matchedName": "Jean Dupont",
-    "requestId": "uuid",
-    "responseTimeMs": 412,
-    "iban": "LV93HABA0141234567890",
-    "name": "Jean Dupont"
-  }
-}
-```
-
-When verification does **not** match, `data.entryId` is **`null`**, **`addressBookPersisted`** is **`false`**, and the refusal fields explain that the address book was not updated:
-
-```json
-{
-  "success": true,
-  "data": {
-    "entryId": null,
-    "addressBookPersisted": false,
-    "addressBookRefusalReason": "VOP_NOT_MTCH",
-    "addressBookRefusalMessage": "Verification of Payee did not return MTCH; the beneficiary IBAN was not saved to your address book.",
-    "vop": false,
-    "vopResult": "NMTC",
-    "requestId": "uuid",
-    "responseTimeMs": 380,
-    "iban": "LV93HABA0141234567890",
-    "name": "Wrong Name"
-  }
-}
-```
-
-List or delete contacts via **`GET /v1.2/users/me/addressbook`** and **`DELETE /v1.2/users/me/addressbook/:id`** (or granular IBAN/crypto sub-routes).
 
 ---
 
@@ -3673,6 +3618,7 @@ These endpoints provide operational tooling around KY/KYB test flows and state m
 | **Intended usage** | For admin operations and integration testing flows. Not part of the standard end-user API surface. |
 | **Auth — browser / operator** | Same as other admin API calls: **Basic** auth and/or **admin session** cookie (after `POST /api/admin/login`). |
 | **Auth — tenant (dApp server)** | Header **`x-api-key: <Domain.apiKey>`**. The API key maps to a tenant (`rpId`) and enforces tenant scoping (see below). |
+| **Development localhost bypass** | When `NODE_ENV=development`, all `/api/admin/devtools/*` endpoints also accept requests with explicit `rpId=localhost` (query/header `rpId` / `x-rpid` variants), without requiring admin Basic/session auth or a Domain API key. This is a local development-only bypass and forces DevTools tenant scope to `localhost`. |
 | **Scoping (Domain API key)** | Client-facing identifier is **`externalUserId`**. The API resolves internal `userId` server-side before calling IBEXSAFE. For Domain key auth, **list** responses only include KY rows whose `user_id` is linked to at least one `ExternalUser` for that `rpId`. **Read / set state / enroll** require an `externalUserId` linked to the tenant; otherwise **404**. |
 
 **Base URL:** same host as the public API (e.g. `https://passkeys-prat1.ibex.fi`).
@@ -3782,7 +3728,7 @@ Development-only helper to trigger a direct SEPA payment topup without the user 
 
 This endpoint:
 - only works when `NODE_ENV=development` (otherwise returns `404 Not Found`);
-- selects one configured faucet source pair at random from `FAUCET_SENDER_ADDRESS_IBAN_01..10` + `FAUCET_SENDER_ADDRESS_01..10`;
+- selects one configured faucet source pair at random from server-side faucet slot configuration;
 - resolves source identity from DB (`Safe -> Signer -> ExternalUser`);
 - calls IBEX SEPA `POST /payments` directly (same upstream used by `/v1.2/sepa/payments`) and bypasses the app-level POST/PUT passkey approval flow.
 

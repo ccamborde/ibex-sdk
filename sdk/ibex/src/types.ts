@@ -126,6 +126,9 @@ export type IbexCreateAddressBookEntryInput = {
   label?: string;
   userValidated?: boolean;
   crypto?: IbexAddressBookCryptoRow[];
+  iban?: string;
+  respondingPspBic?: string;
+  remittanceInfo?: string;
 };
 
 export type IbexUpdateAddressBookEntryInput = {

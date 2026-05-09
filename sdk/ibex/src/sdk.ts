@@ -331,6 +331,11 @@ export class IbexSdk {
   }
 
   async createMeAddressBookEntry(input: IbexCreateAddressBookEntryInput): Promise<IbexAddressBookEntryResponse> {
+    const hasIban = typeof input.iban === "string" && input.iban.trim().length > 0;
+    const hasRespondingPspBic = typeof input.respondingPspBic === "string" && input.respondingPspBic.trim().length > 0;
+    if (hasIban !== hasRespondingPspBic) {
+      throw new Error("When creating an address book entry, `iban` and `respondingPspBic` must be provided together.");
+    }
     const payload = await this.withRefreshOnUnauthorized(async (token) =>
       this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, {
         method: "POST",
