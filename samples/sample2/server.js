@@ -90,6 +90,7 @@ app.post("/api/ibex/auth/sign-up/complete", (req, res) => proxyIbex(req, res, "/
 app.post("/api/ibex/auth/refresh", (req, res) => proxyIbex(req, res, "/v1.2/auth/refresh"));
 app.get("/api/ibex/users/me", (req, res) => proxyIbex(req, res, "/v1.2/users/me"));
 app.post("/api/ibex/users/me", (req, res) => proxyIbex(req, res, "/v1.2/users/me"));
+app.get("/api/ibex/chains", (req, res) => proxyIbex(req, res, "/v1.2/chains/"));
 app.get("/api/ibex/users/me/balances", (req, res) => proxyIbex(req, res, "/v1.2/users/me/balances"));
 app.get("/api/ibex/users/me/transactions", (req, res) => proxyIbex(req, res, "/v1.2/users/me/transactions"));
 app.get("/api/ibex/users/me/address", (req, res) => proxyIbex(req, res, "/v1.2/users/me/address"));

@@ -1,7 +1,14 @@
 const STORAGE_KEYS = {
   accessToken: "access_token",
   refreshToken: "refresh_token",
+  rpId: "rp_id",
   externalUserId: "external_user_id"
+};
+
+const AUTH_INCLUDE_FLAGS = {
+  includeBalance: true,
+  includeTransactions: true,
+  includeUserdata: true
 };
 
 const state = {
@@ -16,6 +23,7 @@ const state = {
   addressBook: null,
   sepaIbans: null,
   sepaTransactions: null,
+  chains: null,
   isRefreshing: false
 };
 
@@ -246,6 +254,14 @@ function setSession(tokens, externalUserId = null) {
   if (externalUserId) localStorage.setItem(STORAGE_KEYS.externalUserId, externalUserId);
 }
 
+function setStoredRpId(rpId) {
+  if (rpId) localStorage.setItem(STORAGE_KEYS.rpId, rpId);
+}
+
+function getStoredRpId() {
+  return localStorage.getItem(STORAGE_KEYS.rpId);
+}
+
 function getAccessToken() {
   return localStorage.getItem(STORAGE_KEYS.accessToken);
 }
@@ -272,6 +288,7 @@ function clearSessionAndScopedCache() {
   }
   localStorage.removeItem(STORAGE_KEYS.accessToken);
   localStorage.removeItem(STORAGE_KEYS.refreshToken);
+  localStorage.removeItem(STORAGE_KEYS.rpId);
   localStorage.removeItem(STORAGE_KEYS.externalUserId);
   state.profile = null;
   render();
@@ -319,7 +336,7 @@ function render() {
     2
   );
   el.addressJson.textContent = JSON.stringify(
-    { usersMe: state.address || {}, sepaIbans: state.sepaIbans || {} },
+    { usersMe: state.address || {}, sepaIbans: state.sepaIbans || {}, chains: state.chains || {} },
     null,
     2
   );
@@ -337,7 +354,7 @@ function render() {
 }
 
 function makeRpHeaders() {
-  const rpId = resolveRpId();
+  const rpId = getStoredRpId() || resolveRpId();
   return { "X-Rp-Id": rpId, "X-RpId": rpId };
 }
 
@@ -380,33 +397,37 @@ async function apiFetch(path, { method = "GET", body, auth = false, retryOnAuth 
   return payload;
 }
 
+let refreshInFlight = null;
+
 async function refreshSession(fromAutoRetry = false) {
-  if (state.isRefreshing) {
-    throw new Error("Refresh already running");
-  }
+  if (refreshInFlight) return refreshInFlight;
   const refreshToken = getRefreshToken();
   if (!refreshToken) throw new Error("No refresh token available");
 
-  try {
-    state.isRefreshing = true;
-    const payload = await apiFetch("/api/ibex/auth/refresh", {
-      method: "POST",
-      body: { refresh_token: refreshToken },
-      auth: false,
-      retryOnAuth: false
-    });
-    const tokens = extractTokens(payload);
-    if (!tokens) throw new Error("Invalid refresh payload");
-    setSession(tokens, getExternalUserId());
-    logEvent(fromAutoRetry ? "Session refreshed after 401/403" : "Session refreshed manually");
-    render();
-  } catch (error) {
-    logEvent("Refresh failed, clearing session", { error: String(error) }, "error");
-    clearSessionAndScopedCache();
-    throw error;
-  } finally {
-    state.isRefreshing = false;
-  }
+  refreshInFlight = (async () => {
+    try {
+      state.isRefreshing = true;
+      const payload = await apiFetch("/api/ibex/auth/refresh", {
+        method: "POST",
+        body: { refresh_token: refreshToken },
+        auth: false,
+        retryOnAuth: false
+      });
+      const tokens = extractTokens(payload);
+      if (!tokens) throw new Error("Invalid refresh payload");
+      setSession(tokens, getExternalUserId());
+      logEvent(fromAutoRetry ? "Session refreshed after 401/403" : "Session refreshed manually");
+      render();
+    } catch (error) {
+      logEvent("Refresh failed, clearing session", { error: String(error) }, "error");
+      clearSessionAndScopedCache();
+      throw error;
+    } finally {
+      state.isRefreshing = false;
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 async function loadProfile() {
@@ -494,6 +515,12 @@ async function loadMarketData() {
     state.sepaTransactions = { error: String(error), status: error.status || 0 };
   }
 
+  try {
+    state.chains = await apiFetch("/api/ibex/chains", { auth: true });
+  } catch (error) {
+    state.chains = { error: String(error), status: error.status || 0 };
+  }
+
   render();
 }
 
@@ -565,6 +592,7 @@ async function onSepaFormSubmit(event) {
 
 async function authenticate() {
   const rpId = resolveRpId();
+  setStoredRpId(rpId);
   const query = new URLSearchParams({ wallet: "passkeys", rpId }).toString();
 
   let tokens = null;
@@ -578,7 +606,7 @@ async function authenticate() {
     if (!assertion) throw new Error("No assertion returned by WebAuthn");
     const signInPayload = await apiFetch("/api/ibex/auth/sign-in/complete", {
       method: "POST",
-      body: { credential: serializeAssertion(assertion) },
+      body: { credential: serializeAssertion(assertion), ...AUTH_INCLUDE_FLAGS },
       retryOnAuth: false
     });
     tokens = extractTokens(signInPayload);
@@ -605,12 +633,14 @@ async function authenticate() {
   }
 
   // Do not refresh right after auth; the issued token is already valid.
+  setStoredRpId(rpId);
   setSession(tokens, null);
   await loadProfile();
   await loadMarketData();
 }
 
 async function signUpOnly(query = null, rpId = resolveRpId()) {
+  setStoredRpId(rpId);
   const effectiveQuery = query || new URLSearchParams({ wallet: "passkeys", rpId }).toString();
   const signUpOptionsPayload = await apiFetch(`/api/ibex/auth/sign-up/options?${effectiveQuery}`, {
     method: "GET",
@@ -621,7 +651,7 @@ async function signUpOnly(query = null, rpId = resolveRpId()) {
   if (!attestation) throw new Error("No attestation returned by WebAuthn");
   const signUpPayload = await apiFetch("/api/ibex/auth/sign-up/complete", {
     method: "POST",
-    body: { credential: serializeAttestation(attestation) },
+    body: { credential: serializeAttestation(attestation), ...AUTH_INCLUDE_FLAGS },
     retryOnAuth: false
   });
   const tokens = extractTokens(signUpPayload);
@@ -634,6 +664,7 @@ async function signUpOnly(query = null, rpId = resolveRpId()) {
 }
 
 async function validateSessionOnInit() {
+  if (!getStoredRpId()) setStoredRpId(resolveRpId());
   const accessToken = getAccessToken();
   if (!accessToken) return;
   try {

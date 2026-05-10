@@ -9,6 +9,7 @@
  *   POST /api/ibex/auth/refresh            → POST /v1.2/auth/refresh
  *   GET  /api/ibex/users/me                → GET  /v1.2/users/me
  *   POST /api/ibex/users/me                → POST /v1.2/users/me
+ *   GET  /api/ibex/chains                  → GET  /v1.2/chains
  *   POST /api/ibex/sepa/iban/add           → POST /v1.2/sepa/iban/add
  *   GET  /api/ibex/sepa/iban               → GET  /v1.2/sepa/iban
  *   POST /api/ibex/sepa/payments           → POST /v1.2/sepa/payments
@@ -122,6 +123,9 @@ app.get('/api/ibex/users/me', (req, res) =>
 );
 app.post('/api/ibex/users/me', (req, res) =>
   proxyToIbex(req, res, { method: 'POST', upstreamPath: '/v1.2/users/me' })
+);
+app.get('/api/ibex/chains', (req, res) =>
+  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/chains/' })
 );
 app.get('/api/ibex/users/me/balances', (req, res) =>
   proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/balances' })

@@ -32,6 +32,11 @@ function resolveRpId() {
   return h;
 }
 const rpId = resolveRpId();
+const AUTH_INCLUDE_FLAGS = {
+  includeBalance: true,
+  includeTransactions: true,
+  includeUserdata: true,
+};
 
 // ═══════════════════════════════════════════════════════════════════════
 // §3  Event Logger
@@ -75,7 +80,8 @@ function logInfo(msg) {
 // §4  API Client (talks to local proxy)
 // ═══════════════════════════════════════════════════════════════════════
 async function api(method, path, body, auth) {
-  const headers = { 'X-Rp-Id': rpId, 'X-RpId': rpId };
+  const effectiveRpId = session.rpId || rpId;
+  const headers = { 'X-Rp-Id': effectiveRpId, 'X-RpId': effectiveRpId };
   if (body) headers['Content-Type'] = 'application/json';
   if (auth) {
     headers['X-IBEx-Auth'] = `Bearer ${auth}`;
@@ -105,6 +111,8 @@ const session = {
   set accessToken(v) { localStorage.setItem('access_token', v); },
   get refreshToken() { return localStorage.getItem('refresh_token'); },
   set refreshToken(v){ localStorage.setItem('refresh_token', v); },
+  get rpId()         { return localStorage.getItem('rp_id'); },
+  set rpId(v)        { localStorage.setItem('rp_id', v); },
   get userId()       { return localStorage.getItem('external_user_id'); },
   set userId(v)      { localStorage.setItem('external_user_id', v); },
 
@@ -120,6 +128,7 @@ const session = {
     }
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem('rp_id');
     localStorage.removeItem('external_user_id');
   },
 
@@ -255,20 +264,36 @@ async function authenticatedRequest(method, path, body) {
   }
 }
 
+let refreshPromise = null;
+
 async function refreshToken() {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const res = await api('POST', '/api/ibex/auth/refresh', {
+        refresh_token: session.refreshToken
+      });
+      const tokens = extractTokens(res);
+      if (!tokens) return false;
+      session.accessToken = tokens.access_token;
+      if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
+      logInfo('✓ Token refreshed');
+      renderSession();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+async function loadChainsData() {
   try {
-    const res = await api('POST', '/api/ibex/auth/refresh', {
-      refresh_token: session.refreshToken
-    });
-    const tokens = extractTokens(res);
-    if (!tokens) return false;
-    session.accessToken = tokens.access_token;
-    if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
-    logInfo('✓ Token refreshed');
-    renderSession();
-    return true;
-  } catch {
-    return false;
+    return await authenticatedRequest('GET', '/api/ibex/chains');
+  } catch (err) {
+    return { error: 'Failed to load /v1.2/chains', status: err?.status || 0 };
   }
 }
 
@@ -289,7 +314,10 @@ async function doAuth() {
     const opts = await api('GET', '/api/ibex/auth/sign-in/options' + qp);
     const pubKey = decodeSignInOptions(opts.credentialRequestOptions);
     const assertion = await navigator.credentials.get({ publicKey: pubKey });
-    const result = await api('POST', '/api/ibex/auth/sign-in/complete', encodeAssertion(assertion));
+    const result = await api('POST', '/api/ibex/auth/sign-in/complete', {
+      ...encodeAssertion(assertion),
+      ...AUTH_INCLUDE_FLAGS,
+    });
     tokens = extractTokens(result);
   } catch (e) {
     logInfo('⚠ Sign-in failed or cancelled, trying sign-up…');
@@ -303,7 +331,10 @@ async function doAuth() {
       const opts = await api('GET', '/api/ibex/auth/sign-up/options' + qp);
       const pubKey = decodeSignUpOptions(opts.credentialRequestOptions);
       const attestation = await navigator.credentials.create({ publicKey: pubKey });
-      const result = await api('POST', '/api/ibex/auth/sign-up/complete', encodeAttestation(attestation));
+      const result = await api('POST', '/api/ibex/auth/sign-up/complete', {
+        ...encodeAttestation(attestation),
+        ...AUTH_INCLUDE_FLAGS,
+      });
       tokens = extractTokens(result);
     } catch (e2) {
       logInfo('✗ Authentication failed completely');
@@ -320,7 +351,8 @@ async function doAuth() {
     return;
   }
 
-  // Step 3: Store tokens — do NOT refresh
+  // Step 3: Commit auth context atomically — do NOT refresh
+  session.rpId = rpId;
   session.accessToken = tokens.access_token;
   if (tokens.refresh_token) session.refreshToken = tokens.refresh_token;
   logInfo('✓ Authenticated — loading profile…');
@@ -450,10 +482,14 @@ function renderMarketData(resources) {
     addressBook,
     sepaIbans,
     sepaTransactions,
+    chains,
   } = resources;
   document.getElementById('balancesData').textContent = JSON.stringify(balances || {}, null, 2);
   document.getElementById('transactionsData').textContent = JSON.stringify(transactions || {}, null, 2);
-  document.getElementById('addressData').textContent = JSON.stringify(address || {}, null, 2);
+  document.getElementById('addressData').textContent = JSON.stringify({
+    address: address || {},
+    chains: chains || {},
+  }, null, 2);
   document.getElementById('signersData').textContent = JSON.stringify(signers || {}, null, 2);
   document.getElementById('tokensData').textContent = JSON.stringify(tokens || {}, null, 2);
   document.getElementById('poolsData').textContent = JSON.stringify(pools || {}, null, 2);
@@ -477,6 +513,7 @@ async function loadProtectedResource(path, { query = '', indexing404 = false } =
 async function loadMarketData() {
   const paged = '?page=1&limit=20';
   const sepa = await loadSepaData();
+  const chains = await loadChainsData();
   const resources = {
     balances: await loadProtectedResource('/api/ibex/users/me/balances', { query: paged, indexing404: true }),
     transactions: await loadProtectedResource('/api/ibex/users/me/transactions', { query: paged, indexing404: true }),
@@ -488,6 +525,7 @@ async function loadMarketData() {
     addressBook: await loadProtectedResource('/api/ibex/users/me/addressbook'),
     sepaIbans: sepa.ibans,
     sepaTransactions: sepa.transactions,
+    chains,
   };
   renderMarketData(resources);
 }
@@ -556,6 +594,7 @@ document.getElementById('btnClearLog').addEventListener('click', () => {
 // §12  Init — Restore Session
 // ═══════════════════════════════════════════════════════════════════════
 (async function init() {
+  if (!session.rpId) session.rpId = rpId;
   if (session.accessToken) {
     logInfo('↻ Restoring previous session…');
     setStatus('connecting');
