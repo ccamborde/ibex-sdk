@@ -9,6 +9,8 @@ Advanced IBEx.Fi widget example with:
 - Detailed real-time API event log
 - Unified address book proxy routes
 - SEPA proxy integration (IBAN, payments, transactions)
+- Chain capability discovery (`/v1.2/chains/`)
+- Atomic auth bootstrap + single-flight refresh lock
 
 ## Start
 
@@ -31,6 +33,10 @@ The local server also exposes:
 - `DELETE /api/ibex/users/me/addressbook/:id/crypto/:chainId/:address`
 - `DELETE /api/ibex/users/me/addressbook/:id/ibans/:iban`
 
+Addressbook IBAN creation reminder:
+- when posting an IBAN contact, send `iban` and `respondingPspBic` together.
+- do not call a direct VoP endpoint from the client.
+
 ## SEPA proxy endpoints
 
 The local server exposes:
@@ -41,6 +47,12 @@ The local server exposes:
 - `PUT /api/ibex/sepa/payments`
 - `GET /api/ibex/sepa/transactions`
 - `GET /api/ibex/sepa/transactions/:id`
+
+## Chains proxy endpoint
+
+- `GET /api/ibex/chains` -> `/v1.2/chains/`
+
+Use it with `/api/ibex/users/me` chain context (`chainid.defaultChainId`, `chainid.chains[]`) to map chain ids to names/modules and gate features.
 
 ## SEPA payment flow (2 steps)
 
