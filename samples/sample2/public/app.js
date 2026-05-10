@@ -58,7 +58,6 @@ const el = {
   sepaPaymentJson: document.querySelector("#sepaPaymentJson"),
   statusBadge: document.querySelector("#statusBadge"),
   rpIdValue: document.querySelector("#rpIdValue"),
-  rpWarning: document.querySelector("#rpWarning"),
   externalUserId: document.querySelector("#externalUserId"),
   accessToken: document.querySelector("#accessToken"),
   refreshToken: document.querySelector("#refreshToken"),
@@ -327,7 +326,6 @@ function render() {
   const rpId = resolveRpId();
   setConnected(connected);
   el.rpIdValue.textContent = rpId;
-  el.rpWarning.classList.toggle("hidden", rpId !== "localhost");
   el.profileJson.textContent = JSON.stringify(state.profile?.raw || {}, null, 2);
   el.balancesJson.textContent = JSON.stringify(state.balances || {}, null, 2);
   el.transactionsJson.textContent = JSON.stringify(

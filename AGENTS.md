@@ -104,10 +104,16 @@ Out of scope unless explicitly requested:
 
 When a task requires mandatory demo address-book entries, reuse these existing values:
 
-- SEPA beneficiary (`John Doe`):
-  - `iban`: `FR7616748000014733062059352`
-  - `respondingPspBic`: `BUMDFRP2`
-  - `label/source`: `FAUCET`
-- Crypto beneficiary (`John Doe`):
-  - `address`: `0x1D07bc08F3fdBE0892ef6aC437e4b51c304cCB3B`
-  - `chainId`: `421614` (unless the developer explicitly asks another chain)
+- SEPA faucet beneficiaries:
+  - `FAUCET_SENDER_ADDRESS_IBAN_01_NAME`: `IBEX Faucet 01`
+  - `FAUCET_SENDER_ADDRESS_IBAN_01`: `FR7616748000014733062059352`
+  - `FAUCET_SENDER_ADDRESS_IBAN_BIC_01`: `BUMDFRP2`
+  - `FAUCET_SENDER_ADDRESS_IBAN_02_NAME`: `IBEX Faucet 02`
+  - `FAUCET_SENDER_ADDRESS_IBAN_02`: `FR7616748000011199641458852`
+  - `FAUCET_SENDER_ADDRESS_IBAN_BIC_02`: `BUMDFRP2`
+- Crypto faucet beneficiaries:
+  - `FAUCET_SENDER_ADDRESS_01`: `0x0795239e54A9b6f97413cA84688f7a93b9A0640e`
+  - `FAUCET_SENDER_ADDRESS_02`: `0x8E50Be91c0af9279eb6F06baC6B75B113CECcC6D`
+  - `FAUCET_SENDER_ADDRESS_03`: `0x02ccfBf5b57a503e1172eA2665455CA1cfe85c0A`
+  - `FAUCET_SENDER_ADDRESS_04`: `0x9937383A144592c637D98E2FFa6d78AFDb659200`
+  - `FAUCET_SENDER_ADDRESS_05`: `0x59F0f3128a2fD7B7409dB55367C576caB2469Ce2`
