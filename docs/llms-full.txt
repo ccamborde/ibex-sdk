@@ -229,6 +229,7 @@ Rules:
 - `iban` and `respondingPspBic` must be provided together for IBAN creation flow.
 - There is no separate client-side VoP endpoint to call here.
 - VoP is handled internally by `POST /v1.2/users/me/addressbook`.
+- If demo/test seed is required, reuse only the canonical `FAUCET_*` keys defined in `AGENTS.md` (do not duplicate literal values here).
 
 ### POST /v1.2/sepa/payments request body (payment intent)
 

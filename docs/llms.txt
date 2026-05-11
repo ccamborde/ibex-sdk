@@ -38,7 +38,7 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 - Do not call any direct VoP endpoint for this flow.
 - VoP is executed internally by the addressbook create endpoint.
 - Do not invent demo/test data unless explicitly requested by the developer.
-- If demo addressbook seed is required, reuse repository-provided test values.
+- If demo/test seed is required, reuse only the canonical `FAUCET_*` keys defined in `AGENTS.md` (do not duplicate literal values here).
 
 ## SEPA Payments and Mandates (SDK Scope)
 
