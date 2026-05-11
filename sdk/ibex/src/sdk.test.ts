@@ -61,7 +61,7 @@ describe("IbexSdk users/me endpoints", () => {
     expect((init?.headers as Record<string, string>)["X-IBEx-Auth"]).toBe("Bearer access-123");
   });
 
-  it("builds transactions URL with query parameters", async () => {
+  it("builds transactions URL with extended query parameters", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, { data: [], total: 0 }));
     const sdk = createIbexSdk({
@@ -71,12 +71,26 @@ describe("IbexSdk users/me endpoints", () => {
     });
 
     sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
-    await sdk.getMeTransactions({ walletAddress: "0xdef", page: 1, limit: 10 });
+    await sdk.getMeTransactions({
+      walletAddress: "0xdef",
+      iban: "FR76...",
+      scope: "mixed",
+      blockchainId: 421614,
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+      direction: "IN",
+      tokenType: "ERC20",
+      tokenAddress: "0x123",
+      hash: "0xabc",
+      page: 1,
+      limit: 10,
+      includePrices: true,
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe(
-      "https://passkeys-testnet.ibex.fi/v1.2/users/me/transactions?walletAddress=0xdef&page=1&limit=10",
+      "https://passkeys-testnet.ibex.fi/v1.2/users/me/transactions?walletAddress=0xdef&iban=FR76...&scope=mixed&blockchainId=421614&startDate=2026-01-01&endDate=2026-12-31&direction=IN&tokenType=ERC20&tokenAddress=0x123&hash=0xabc&page=1&limit=10&includePrices=true",
     );
     expect(init?.method).toBe("GET");
   });

@@ -726,6 +726,24 @@ Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `
 
 ---
 
+### JWT anti-flood policy (external routes)
+
+For external JWT routes, the API applies a global anti-flood guard and returns `429` with `Retry-After` when limits are hit.
+
+The guard is evaluated per tenant/user and has two layers:
+
+1. **Strict replay layer**: blocks immediate replays of the exact same request fingerprint  
+   (`rpId + externalUserId + method + routePattern + canonicalQuery + canonicalBody`).
+2. **Per-route budget layer**: applies a short window quota by  
+   `rpId + externalUserId + method + routePattern + business dimensions` (endpoint-specific key).
+
+Examples of business dimensions used by the budget key:
+- `GET /v1.2/users/me/transactions`: `scope`, `blockchainId`, `walletAddress`, `iban`
+- `GET /v1.2/users/me/balances`: `blockchainId`, `walletAddress`, `iban`, `includePrices`, `includeZero`
+- aggregate and mutation routes use dedicated policy keys (signer, action identifiers, etc.).
+
+This policy is intentionally strict to prevent repeated polling/flood patterns with small payload mutations.
+
 ### GET /v1.2/users/me
 
 **Headers:** `Authorization: Bearer <access_token>`.
@@ -737,7 +755,6 @@ It proxies the following routes and returns one top-level key per section (compa
 
 - `GET /v1.2/users/me/address`
 - `GET /v1.2/users/me/balances`
-- `GET /v1.2/users/me/chainid`
 - `GET /v1.2/users/me/ibans`
 - `GET /v1.2/users/me/lending`
 - `GET /v1.2/users/me/pools`
@@ -764,7 +781,6 @@ Host: app.example.com
 {
   "addresses": { "count": 1, "wallets": [] },
   "balances": { "type": "crypto", "identifier": "0x..." },
-  "chainid": { "defaultChainId": 421614, "chains": [] },
   "ibans": { "count": 5, "ibans": [] },
   "lending": [],
   "pools": {},
@@ -878,9 +894,9 @@ Token rows typically include `price_usd` / `price_eur`, `value_usd` / `value_eur
 
 ### GET /v1.2/users/me/transactions
 
-**Headers:** JWT ; optional **`X-Blockchain-Id`** / `blockchainId`.
+**Headers:** JWT ; optional **`X-Blockchain-Id`**.
 
-**Query (optional):** `walletAddress`, `iban`, `startDate`, `endDate`, `direction`, `tokenType`, `tokenAddress`, `hash`, `page`, `limit`, `includePrices`. Default date values may be applied by the API when omitted.
+**Query (optional):** `walletAddress`, `iban`, `scope`, `blockchainId`, `startDate`, `endDate`, `direction`, `tokenType`, `tokenAddress`, `hash`, `page`, `limit`, `includePrices`.
 
 Default values (when omitted):
 - `startDate=2025-01-01`
@@ -888,18 +904,28 @@ Default values (when omitted):
 - `page=1`
 - `limit=50`
 - `includePrices=true`
+- `scope=mixed`
 
 Pagination note:
-- This endpoint is paginated by design. There is no "return all transactions in one call" mode.
-- To fetch the full history, iterate over `page` until `totalPages` is reached (or until returned `data` is empty), then merge pages client-side.
+- Response is paginated (`page`, `limit`, `total`, `totalPages`) for both `crypto` and `fiat` sections.
+- For full history, iterate over pages client-side.
 
 `externalUserId` is taken from the JWT (forwarded as `externaluserid` to BCReader), not from query params on this endpoint.
 
 Scope behavior:
-- If only `externalUserId` is present (via JWT), with no `walletAddress` and no `iban`: aggregated user mode (`/v1.2/transactions`) for all user wallets and IBANs.
+- If only JWT user scope is present (no `walletAddress`, no `iban`): aggregated user mode across all user wallets and all user IBANs.
 - `walletAddress`: scoped mode (`/v1.2/transactions/:identifier`) for one wallet.
 - `iban`: scoped mode (`/v1.2/transactions/:identifier`) for one IBAN.
 - `walletAddress` + `iban`: rejected (`400`, ambiguous scope).
+
+Chain behavior in aggregated mode:
+- If `blockchainId` is explicitly provided (query) **or** `X-Blockchain-Id` is explicitly provided, only this chain is aggregated.
+- If no explicit chain selector is provided, aggregation runs across all chains where the user has wallets.
+
+Transaction-class filter:
+- `scope=mixed` (default): returns both `crypto` and `fiat`.
+- `scope=crypto`: returns only `crypto`.
+- `scope=fiat`: returns only `fiat`.
 
 `walletAddress` accepted values:
 - a Safe address from `GET /v1.2/users/me/address` (`wallets[].safeAddress`)
@@ -914,12 +940,85 @@ Ownership enforcement:
 - the API forwards `externaluserid=<externalUserId from JWT>` to BCReader on every call.
 - `externaluserid` is the client-facing user identifier.
 
-Pagination/filtering remain unchanged (`page`, `limit`, date/token filters, `includePrices`).
+Pagination/filtering remain available (`page`, `limit`, date/token filters, `includePrices`).
 
-**Response (200):** BCReader v1.2 passthrough payload.
+**Response (200):**
 
-- scoped wallet/IBAN call: typed identifier envelope with pagination fields.
-- aggregated call (default): BCReader global transactions format for the authenticated user scope.
+- `scope=mixed` (default):
+  - `type: "mixed"`
+  - `crypto` section + `fiat` section
+- `scope=crypto`:
+  - `type: "crypto"`
+  - only `crypto` section
+- `scope=fiat`:
+  - `type: "fiat"`
+  - only `fiat` section
+
+Aggregated `crypto` includes:
+- classic pagination fields: `total`, `page`, `limit`, `totalPages`, `data`
+- grouped view: `chains[]` where each chain contains `wallets[]`
+
+Aggregated `fiat` includes:
+- classic pagination fields: `total`, `page`, `limit`, `totalPages`, `data`
+- grouped view by IBAN: `ibans[]`
+
+Example (`scope=mixed`):
+
+```json
+{
+  "type": "mixed",
+  "timestamp": "2026-05-10T16:56:12.377Z",
+  "crypto": {
+    "blockchainId": "421614",
+    "total": 5,
+    "page": 1,
+    "limit": 200,
+    "totalPages": 1,
+    "data": [
+      { "transactionHash": "0x...", "walletAddress": "0x391f...", "blockchainId": "421614" }
+    ],
+    "chains": [
+      {
+        "blockchainId": "421614",
+        "total": 5,
+        "wallets": [
+          {
+            "walletAddress": "0x391f...",
+            "total": 5,
+            "data": [
+              { "transactionHash": "0x..." }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "fiat": {
+    "ibans": [
+      {
+        "iban": "FR76...",
+        "total": 2,
+        "data": [
+          { "id": "tx_..." }
+        ]
+      }
+    ],
+    "total": 2,
+    "page": 1,
+    "limit": 200,
+    "totalPages": 1,
+    "data": [
+      { "id": "tx_..." }
+    ],
+    "filters": {
+      "type": null,
+      "status": null,
+      "startDate": "2026-02-01",
+      "endDate": "2026-05-31"
+    }
+  }
+}
+```
 
 ---
 
@@ -3777,6 +3876,28 @@ Possible errors:
 - `400` when no valid faucet source slot is configured or `targetIban` is missing;
 - `404` when no DB identity can be resolved for configured source slots;
 - `500` when upstream payment call fails.
+
+#### POST `/api/admin/devtools/crypto/topup`
+
+Development-only helper to trigger a crypto faucet topup for a user wallet.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | Target user external identifier. |
+| `wallet` | string | No | Wallet address to top up. Required when the user has multiple eligible wallets. |
+
+**Response (200):** faucet topup result including selected wallet, token, amount, and `txHash`.
+
+Possible errors:
+- `404` when not in development mode;
+- `429` when crypto faucet program is disabled;
+- `400` when `externalUserId` is missing/invalid, when `wallet` format is invalid, or when `wallet` is required (ambiguous user wallets);
+- `404` when `externalUserId` is unknown for the current tenant or when no eligible wallet is found;
+- `500` on transfer failure.
 
 ---
 

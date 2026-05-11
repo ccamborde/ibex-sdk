@@ -15,6 +15,7 @@ Build a self-contained web widget that demonstrates IBEx.Fi integration:
 4. **Token refresh** — keep JWT session alive without re-authentication
 5. **Scoped local storage** — cache user data with `${externalUserId}_${key}` prefix
 6. **Event log** — real-time display of all API calls, results, and errors
+7. **SEPA flows** — support IBAN add/list, payment intent/confirmation, transaction read, and mandate lifecycle
 
 ---
 
@@ -35,6 +36,17 @@ Example: `https://passkeys-testnet.ibex.fi`
 | Read user data | GET | `/v1.2/users/me` | Yes |
 | Write user data | POST | `/v1.2/users/me` | Yes |
 | Create address book entry | POST | `/v1.2/users/me/addressbook` | Yes |
+| Add IBAN | POST | `/v1.2/sepa/iban/add` | Yes |
+| List IBANs | GET | `/v1.2/sepa/iban` | Yes |
+| Create payment intent | POST | `/v1.2/sepa/payments` | Yes |
+| Confirm payment | PUT | `/v1.2/sepa/payments` | Yes |
+| List SEPA transactions | GET | `/v1.2/sepa/transactions` | Yes |
+| Get SEPA transaction | GET | `/v1.2/sepa/transactions/:id` | Yes |
+| Create mandate | POST | `/v1.2/sepa/mandates` | Yes |
+| List mandates | GET | `/v1.2/sepa/mandates` | Yes |
+| Get mandate | GET | `/v1.2/sepa/mandates/:id` | Yes |
+| Update mandate status | PATCH | `/v1.2/sepa/mandates/:id/status` | Yes |
+| Cancel mandate | POST | `/v1.2/sepa/mandates/:id/cancel` | Yes |
 
 `POST /v1.2/auth/sign-in` can return an enriched payload when supported by backend flags (for example `includeBalance`, `includeTransactions`, `includeUserdata`). Prefer this at login to reduce immediate extra HTTP reads.
 
@@ -218,6 +230,68 @@ Rules:
 - There is no separate client-side VoP endpoint to call here.
 - VoP is handled internally by `POST /v1.2/users/me/addressbook`.
 
+### POST /v1.2/sepa/payments request body (payment intent)
+
+```json
+{
+  "reference": "PAY-2026-001",
+  "channel": "SEPAINSTANT",
+  "amount": "150.00",
+  "currency": "EUR",
+  "remittanceInfo": "Invoice 2026-001",
+  "debtor": { "name": "Alice", "iban": "FR76..." },
+  "creditor": { "name": "Bob", "iban": "FR76..." }
+}
+```
+
+Response contains an approval intent (`approvalId`, `approvalHash`, `expiresAt`, `credentialRequestOptions`).
+
+### PUT /v1.2/sepa/payments request body (payment confirmation)
+
+```json
+{
+  "approvalId": "<approval-id>",
+  "credential": {
+    "id": "...",
+    "rawId": "...",
+    "type": "public-key",
+    "response": {
+      "authenticatorData": "...",
+      "clientDataJSON": "...",
+      "signature": "...",
+      "userHandle": null
+    },
+    "clientExtensionResults": {}
+  }
+}
+```
+
+### GET /v1.2/sepa/transactions query
+
+- `iban`, `type`, `status`, `statusCode`, `search`, `page`, `limit`.
+
+### POST /v1.2/sepa/mandates request body (summary)
+
+```json
+{
+  "sourceIban": "FR76...",
+  "destinationIban": "FR76...",
+  "destinationName": "Bob",
+  "destinationBic": "AGRIFRPPXXX",
+  "percent": 25,
+  "trigger": { "mode": "all" },
+  "signature": {
+    "message": "IBEX_SEPA_MANDATE_V1 ...",
+    "signature": "0x...",
+    "safeOperationUserOpHash": "0x..."
+  }
+}
+```
+
+Mandate status transitions are controlled through:
+- `PATCH /v1.2/sepa/mandates/:id/status` with `status = validated | suspended | cancelled`
+- `POST /v1.2/sepa/mandates/:id/cancel` as convenience cancellation endpoint.
+
 ---
 
 ## SESSION MANAGEMENT
@@ -272,6 +346,17 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 | `POST /api/ibex/auth/refresh` | `POST /v1.2/auth/refresh` |
 | `GET /api/ibex/users/me` | `GET /v1.2/users/me` |
 | `POST /api/ibex/users/me` | `POST /v1.2/users/me` |
+| `POST /api/ibex/sepa/iban/add` | `POST /v1.2/sepa/iban/add` |
+| `GET /api/ibex/sepa/iban` | `GET /v1.2/sepa/iban` |
+| `POST /api/ibex/sepa/payments` | `POST /v1.2/sepa/payments` |
+| `PUT /api/ibex/sepa/payments` | `PUT /v1.2/sepa/payments` |
+| `GET /api/ibex/sepa/transactions` | `GET /v1.2/sepa/transactions` |
+| `GET /api/ibex/sepa/transactions/:id` | `GET /v1.2/sepa/transactions/:id` |
+| `POST /api/ibex/sepa/mandates` | `POST /v1.2/sepa/mandates` |
+| `GET /api/ibex/sepa/mandates` | `GET /v1.2/sepa/mandates` |
+| `GET /api/ibex/sepa/mandates/:id` | `GET /v1.2/sepa/mandates/:id` |
+| `PATCH /api/ibex/sepa/mandates/:id/status` | `PATCH /v1.2/sepa/mandates/:id/status` |
+| `POST /api/ibex/sepa/mandates/:id/cancel` | `POST /v1.2/sepa/mandates/:id/cancel` |
 
 ### Proxy rules
 
@@ -432,6 +517,18 @@ Implementation tip:
 - Prefer WS events for incremental refresh when WS is healthy.
 - Use HTTP reads as fallback/source-of-truth recovery when WS is unavailable or desynced.
 
+### F) CRYPTO transfers (execution + tracking)
+
+- Create transfer intent/execution through Safe operations (`POST/PUT /v1.2/safes/operations`) with transfer operation types.
+- Read transfer history via `GET /v1.2/users/me/transactions` with `scope=crypto` and filters (`walletAddress`, `direction`, `tokenAddress`, `hash`, `page`, `limit`).
+- Realtime transfer updates come from `new_transaction` (and related `balance_update`).
+
+### G) SEPA payments (execution + tracking)
+
+- 2-step flow: `POST /v1.2/sepa/payments` (approval intent) then `PUT /v1.2/sepa/payments` (passkey confirmation).
+- Payment history/status: `GET /v1.2/sepa/transactions` and `GET /v1.2/sepa/transactions/:id`.
+- Realtime status/balance signals: `fiat_transaction_update` and `fiat_balance_update`.
+
 ---
 
 ## COMMON PITFALLS
@@ -473,6 +570,10 @@ Implementation tip:
 - [ ] `externalUserId` is persisted and propagated in the app session/proxy context
 - [ ] `POST /users/me/addressbook` sends `iban` + `respondingPspBic` together when using IBAN flow
 - [ ] No direct client call to a VoP endpoint for address book creation
+- [ ] SEPA IBAN routes are implemented (`POST /v1.2/sepa/iban/add`, `GET /v1.2/sepa/iban`)
+- [ ] SEPA payment flow is implemented in 2 steps (`POST /v1.2/sepa/payments` then `PUT /v1.2/sepa/payments`)
+- [ ] SEPA transaction routes are implemented (`GET /v1.2/sepa/transactions`, `GET /v1.2/sepa/transactions/:id`)
+- [ ] SEPA mandate routes are implemented (`POST/GET /v1.2/sepa/mandates`, `GET /:id`, `PATCH /:id/status`, `POST /:id/cancel`)
 - [ ] WS listener handles userdata/balances/transactions updates when realtime is required
 - [ ] WS reconnect uses refresh + backoff, without reconnect storms
 - [ ] WS auth is sent as first message (`type: "auth"`) within 30 seconds
