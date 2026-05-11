@@ -368,6 +368,18 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 - Strip `content-encoding`, `content-length`, `transfer-encoding` from responses
   (most HTTP clients auto-decompress; forwarding these headers causes decode errors)
 
+## DEVTOOLS TOPUP ENDPOINTS (TEST ONLY)
+
+Use these endpoints only for development/integration roundtrip tests (fund -> user action -> return):
+
+- `POST /api/admin/devtools/sepa/topup`
+- `POST /api/admin/devtools/crypto/topup`
+
+Rules:
+- These are admin/devtools helpers, not production end-user flows.
+- Keep one tenant/rpId scope for the full roundtrip.
+- Reuse only canonical `FAUCET_*` keys from `AGENTS.md` (do not duplicate literal faucet values here).
+
 ---
 
 ## rpId REGISTRATION

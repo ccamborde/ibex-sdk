@@ -59,6 +59,15 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
   - `POST /v1.2/sepa/mandates/:id/cancel`
 - Keep mandate status lifecycle strict: use `validated | suspended | cancelled`.
 
+## DevTools Topup Endpoints (Test Only)
+
+- For development roundtrip tests, you can use:
+  - `POST /api/admin/devtools/sepa/topup`
+  - `POST /api/admin/devtools/crypto/topup`
+- These are DevTools/admin helpers (not end-user production flows).
+- Keep tenant/rpId consistency for the whole test tuple.
+- Reuse only canonical `FAUCET_*` keys from `AGENTS.md` (do not duplicate literal faucet values here).
+
 ## Proxy Requirement
 
 - Browser must call your own backend proxy (CORS-safe), not IBEx directly.
