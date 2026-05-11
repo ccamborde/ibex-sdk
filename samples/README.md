@@ -1,11 +1,16 @@
 # Samples
 
-This folder contains two cleaned examples that demonstrate IBEx.Fi widget integration without duplicated project content.
+This folder contains integration and mockup examples that demonstrate IBEx.Fi widget flows and UI variants.
 
 ## Available examples
 
 - `sample1`: premium dark-mode widget with a rich UI and real-time event log.
 - `sample2`: compact and developer-friendly version focused on core API and session flows.
+- `sample3`: standalone Polar mockup variant 01 (Safe).
+- `sample4`: standalone Polar mockup variant 02 (Data-rich).
+- `sample5`: standalone Polar mockup variant 03 (Soft).
+- `sample6`: standalone Polar mockup variant 04 (Dark Pro).
+- `sample7`: standalone Polar mockup variant 05 (Classic).
 
 ## Run an example
 

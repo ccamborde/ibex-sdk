@@ -171,8 +171,18 @@ Expected SDK result:
 - Endpoint: `GET /v1.2/users/me/transactions`
 - Supported query params in SDK:
   - `walletAddress?: string`
+  - `iban?: string`
+  - `scope?: "mixed" | "crypto" | "fiat"`
+  - `blockchainId?: string | number`
+  - `startDate?: string`
+  - `endDate?: string`
+  - `direction?: string`
+  - `tokenType?: string`
+  - `tokenAddress?: string`
+  - `hash?: string`
   - `page?: number`
   - `limit?: number`
+  - `includePrices?: boolean`
 
 ### `getMeAddress()`
 

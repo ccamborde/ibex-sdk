@@ -40,6 +40,25 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 - Do not invent demo/test data unless explicitly requested by the developer.
 - If demo addressbook seed is required, reuse repository-provided test values.
 
+## SEPA Payments and Mandates (SDK Scope)
+
+- IBAN management:
+  - `POST /v1.2/sepa/iban/add`
+  - `GET /v1.2/sepa/iban`
+- Payment flow (2 steps):
+  - `POST /v1.2/sepa/payments` -> create approval intent + passkey challenge
+  - `PUT /v1.2/sepa/payments` -> confirm/execute payment with `approvalId` + signed `credential`
+- Transactions:
+  - `GET /v1.2/sepa/transactions`
+  - `GET /v1.2/sepa/transactions/:id`
+- Mandates:
+  - `POST /v1.2/sepa/mandates`
+  - `GET /v1.2/sepa/mandates`
+  - `GET /v1.2/sepa/mandates/:id`
+  - `PATCH /v1.2/sepa/mandates/:id/status`
+  - `POST /v1.2/sepa/mandates/:id/cancel`
+- Keep mandate status lifecycle strict: use `validated | suspended | cancelled`.
+
 ## Proxy Requirement
 
 - Browser must call your own backend proxy (CORS-safe), not IBEx directly.
@@ -78,6 +97,14 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 - Transactions:
   - HTTP: `users/me -> transactions`
   - WS: `transaction_data`, `new_transaction`, `fiat_transaction_update`
+- CRYPTO transfers:
+  - Create transfer intent/execution through Safe operations (`POST/PUT /v1.2/safes/operations`) with transfer operation types.
+  - Read transfer history via `GET /v1.2/users/me/transactions` with `scope=crypto` and filters (`walletAddress`, `direction`, `tokenAddress`, `hash`, `page`, `limit`).
+  - Realtime transfer updates come from `new_transaction` (and related `balance_update`).
+- SEPA payments:
+  - 2-step flow: `POST /v1.2/sepa/payments` (approval intent) then `PUT /v1.2/sepa/payments` (passkey confirmation).
+  - Payment history/status: `GET /v1.2/sepa/transactions` and `GET /v1.2/sepa/transactions/:id`.
+  - Realtime status/balance signals: `fiat_transaction_update` and `fiat_balance_update`.
 
 ## Chain Capability Gating
 

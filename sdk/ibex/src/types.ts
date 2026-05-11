@@ -75,8 +75,18 @@ export type IbexBalancesQuery = {
 
 export type IbexTransactionsQuery = {
   walletAddress?: string;
+  iban?: string;
+  scope?: "mixed" | "crypto" | "fiat";
+  blockchainId?: string | number;
+  startDate?: string;
+  endDate?: string;
+  direction?: string;
+  tokenType?: string;
+  tokenAddress?: string;
+  hash?: string;
   page?: number;
   limit?: number;
+  includePrices?: boolean;
 };
 
 export type IbexUserResourceQuery = {
