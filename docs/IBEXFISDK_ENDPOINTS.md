@@ -17,6 +17,10 @@ The SDK currently integrates:
   - monitored tokens
   - pools
   - lending
+- Safe operations (prepare + execute two-step flow):
+  - sign message (EIP-191)
+  - enable recovery
+  - cancel recovery
 - SEPA resources:
   - IBAN add/list
   - payment intent/confirmation
@@ -98,6 +102,11 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `getSepaMandateById(id)` | `GET` | `/v1.2/sepa/mandates/:id` |
 | `updateSepaMandateStatus(id, payload)` | `PATCH` | `/v1.2/sepa/mandates/:id/status` |
 | `cancelSepaMandate(id)` | `POST` | `/v1.2/sepa/mandates/:id/cancel` |
+| `prepareSafeOperations(request)` | `POST` | `/v1.2/safes/operations` |
+| `executeSafeOperations(request)` | `PUT` | `/v1.2/safes/operations` |
+| `signMessage(safeAddress, message, options?)` | `POST` | `/v1.2/safes/operations` |
+| `enableRecovery(safeAddress, identity, options?)` | `POST` | `/v1.2/safes/operations` |
+| `cancelRecovery(safeAddress, options?)` | `POST` | `/v1.2/safes/operations` |
 
 ## Detailed Endpoint Usage
 
@@ -372,6 +381,62 @@ Expected SDK result:
   - URL-encodes `id` path param.
 - Purpose: convenience cancellation endpoint for mandate termination.
 
+### 5) Safe Operations
+
+All Safe operations follow a two-step flow: **prepare** (POST) returns a WebAuthn challenge, then **execute** (PUT) submits the signed credential.
+
+### `prepareSafeOperations(request)`
+
+- Endpoint: `POST /v1.2/safes/operations`
+- Purpose: prepare one or more Safe operations and receive a WebAuthn challenge for signing.
+- Request body:
+  - `safeAddress: string` (required)
+  - `operations: IbexSafeOperation[]` (required)
+  - `chainId?: number`
+  - `signerId?: string`
+  - `walletMode?: "SAFE_4337" | "EOA_7702"`
+  - `eoaKeySelection?: { family: string, index: number, safeAddress?: string }`
+- Response shape:
+  - `{ credentialRequestOptions: { challenge, rpId, timeout, allowCredentials, userVerification, extensions, data } }`
+
+### `executeSafeOperations(request)`
+
+- Endpoint: `PUT /v1.2/safes/operations`
+- Purpose: submit the WebAuthn assertion obtained after `prepareSafeOperations` to execute the operation on-chain.
+- Request body:
+  - `credential: object` (required, serialized WebAuthn assertion)
+  - `chainId?: number`
+- Response shape:
+  - `{ userOpHash?: string, txHash?: string, walletMode?: string, success?: boolean }`
+
+### `signMessage(safeAddress, message, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `SIGN_MESSAGE` operation.
+- Parameters:
+  - `safeAddress: string` (required)
+  - `message: string` (required)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge for EIP-191 personal_sign)
+
+### `enableRecovery(safeAddress, identity, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `ENABLE_RECOVERY` operation.
+- Parameters:
+  - `safeAddress: string` (required)
+  - `identity: { firstName, lastName, birthDate, birthCity, birthCountry }` (required, `birthDate` format `YYYY-MM-DD`)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Note: Safe must already be deployed on-chain.
+
+### `cancelRecovery(safeAddress, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `CANCEL_RECOVERY` operation.
+- Parameters:
+  - `safeAddress: string` (required)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Note: Safe must already have recovery enabled.
+
 ## Session Lifecycle and Retry Behavior
 
 - SDK stores session tokens in configured storage.
@@ -391,7 +456,8 @@ The following API families are not wrapped by high-level SDK methods in `sdk/ibe
 
 - email validation/confirmation routes
 - domain/admin/config endpoints
-- safe-provision and recovery operation routes
+- safe-provision routes (deploy, lazy-create)
+- batch operations (`batch-intent` / `batch-execute`)
 
 ## Recommended Client Integration Order
 

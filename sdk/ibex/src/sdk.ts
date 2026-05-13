@@ -8,6 +8,11 @@ import type {
   IbexHttpError,
   IbexHttpMeta,
   IbexRefreshDetails,
+  IbexSafeEnableRecoveryOperation,
+  IbexSafeExecuteRequest,
+  IbexSafeExecuteResponse,
+  IbexSafeOperationsRequest,
+  IbexSafePrepareResponse,
   IbexSepaAddIbanRequest,
   IbexSepaAddIbanResponse,
   IbexSepaCancelMandateResponse,
@@ -496,6 +501,63 @@ export class IbexSdk {
       }),
     );
     return response as IbexSepaCancelMandateResponse;
+  }
+
+  // --- Safe Operations ---
+
+  async prepareSafeOperations(request: IbexSafeOperationsRequest): Promise<IbexSafePrepareResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/safes/operations", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return response as IbexSafePrepareResponse;
+  }
+
+  async executeSafeOperations(request: IbexSafeExecuteRequest): Promise<IbexSafeExecuteResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/safes/operations", token, {
+        method: "PUT",
+        body: request,
+      }),
+    );
+    return response as IbexSafeExecuteResponse;
+  }
+
+  async signMessage(
+    safeAddress: string,
+    message: string,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "SIGN_MESSAGE", message }],
+      ...options,
+    });
+  }
+
+  async enableRecovery(
+    safeAddress: string,
+    identity: Omit<IbexSafeEnableRecoveryOperation, "type">,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "ENABLE_RECOVERY", ...identity }],
+      ...options,
+    });
+  }
+
+  async cancelRecovery(
+    safeAddress: string,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "CANCEL_RECOVERY" }],
+      ...options,
+    });
   }
 
   private async jsonFetch(path: string, options: JsonRequestOptions = {}): Promise<JsonObject> {

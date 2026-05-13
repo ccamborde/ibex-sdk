@@ -475,3 +475,85 @@ export type IbexSepaCancelMandateResponse = {
   data?: IbexSepaMandate;
   sepaSync?: JsonObject;
 } & JsonObject;
+
+// --- Safe Operations ---
+
+export type IbexSafeOperationType =
+  | "SIGN_MESSAGE"
+  | "ENABLE_RECOVERY"
+  | "CANCEL_RECOVERY"
+  | "TRANSFER_TOKEN"
+  | "TRANSFER_EURe"
+  | "SWAP_FROM_QUOTE"
+  | "AAVE_SUPPLY"
+  | "AAVE_WITHDRAW"
+  | "ADD_OWNER"
+  | "REMOVE_OWNER"
+  | "CHANGE_THRESHOLD";
+
+export type IbexSafeSignMessageOperation = {
+  type: "SIGN_MESSAGE";
+  message: string;
+};
+
+export type IbexSafeEnableRecoveryOperation = {
+  type: "ENABLE_RECOVERY";
+  firstName: string;
+  lastName: string;
+  birthDate: string;
+  birthCity: string;
+  birthCountry: string;
+};
+
+export type IbexSafeCancelRecoveryOperation = {
+  type: "CANCEL_RECOVERY";
+};
+
+export type IbexSafeOperation =
+  | IbexSafeSignMessageOperation
+  | IbexSafeEnableRecoveryOperation
+  | IbexSafeCancelRecoveryOperation
+  | (JsonObject & { type: string });
+
+export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";
+
+export type IbexSafeEoaKeySelection = {
+  family: string;
+  index: number;
+  safeAddress?: string;
+};
+
+export type IbexSafeOperationsRequest = {
+  safeAddress: string;
+  operations: IbexSafeOperation[];
+  chainId?: number;
+  signerId?: string;
+  walletMode?: IbexSafeWalletMode;
+  eoaKeySelection?: IbexSafeEoaKeySelection;
+};
+
+export type IbexSafeCredentialRequestOptions = {
+  challenge?: string;
+  rpId?: string;
+  timeout?: number;
+  allowCredentials?: JsonObject[];
+  userVerification?: string;
+  extensions?: JsonObject;
+  data?: JsonObject;
+} & JsonObject;
+
+export type IbexSafePrepareResponse = {
+  credentialRequestOptions?: IbexSafeCredentialRequestOptions;
+} & JsonObject;
+
+export type IbexSafeExecuteRequest = {
+  credential: JsonObject;
+  chainId?: number;
+};
+
+export type IbexSafeExecuteResponse = {
+  userOpHash?: string;
+  txHash?: string;
+  walletMode?: string;
+  success?: boolean;
+} & JsonObject;

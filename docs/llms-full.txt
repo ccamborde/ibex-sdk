@@ -16,6 +16,7 @@ Build a self-contained web widget that demonstrates IBEx.Fi integration:
 5. **Scoped local storage** — cache user data with `${externalUserId}_${key}` prefix
 6. **Event log** — real-time display of all API calls, results, and errors
 7. **SEPA flows** — support IBAN add/list, payment intent/confirmation, transaction read, and mandate lifecycle
+8. **Safe operations** — sign messages, enable/cancel recovery via 2-step WebAuthn flow
 
 ---
 
@@ -47,6 +48,8 @@ Example: `https://passkeys-testnet.ibex.fi`
 | Get mandate | GET | `/v1.2/sepa/mandates/:id` | Yes |
 | Update mandate status | PATCH | `/v1.2/sepa/mandates/:id/status` | Yes |
 | Cancel mandate | POST | `/v1.2/sepa/mandates/:id/cancel` | Yes |
+| Prepare safe operation(s) | POST | `/v1.2/safes/operations` | Yes |
+| Execute safe operation(s) | PUT | `/v1.2/safes/operations` | Yes |
 
 `POST /v1.2/auth/sign-in` can return an enriched payload when supported by backend flags (for example `includeBalance`, `includeTransactions`, `includeUserdata`). Prefer this at login to reduce immediate extra HTTP reads.
 
@@ -293,6 +296,105 @@ Mandate status transitions are controlled through:
 - `PATCH /v1.2/sepa/mandates/:id/status` with `status = validated | suspended | cancelled`
 - `POST /v1.2/sepa/mandates/:id/cancel` as convenience cancellation endpoint.
 
+### POST /v1.2/safes/operations request body (prepare)
+
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    { "type": "SIGN_MESSAGE", "message": "Hello IBEx" }
+  ]
+}
+```
+
+Supported operation types exposed by SDK:
+
+| Type | Required fields (besides `type`) | Notes |
+|------|----------------------------------|-------|
+| `SIGN_MESSAGE` | `message` | EIP-191 / personal_sign |
+| `ENABLE_RECOVERY` | `firstName`, `lastName`, `birthDate`, `birthCity`, `birthCountry` | Safe must be deployed; `birthDate` format `YYYY-MM-DD` |
+| `CANCEL_RECOVERY` | – | Safe must have recovery enabled |
+
+Optional top-level fields: `walletMode` (`"SAFE_4337"` | `"EOA_7702"`), `signerId`, `eoaKeySelection` (`{ family, index }`).
+
+Response contains `credentialRequestOptions` (WebAuthn challenge):
+
+```json
+{
+  "credentialRequestOptions": {
+    "challenge": "<base64url>",
+    "rpId": "ibex.fi",
+    "timeout": 60000,
+    "allowCredentials": [{ "id": "<base64url>", "type": "public-key" }],
+    "userVerification": "preferred"
+  }
+}
+```
+
+### PUT /v1.2/safes/operations request body (execute)
+
+After the user signs the WebAuthn challenge (`navigator.credentials.get()`), submit the assertion:
+
+```json
+{
+  "credential": {
+    "id": "...",
+    "rawId": "...",
+    "type": "public-key",
+    "response": {
+      "authenticatorData": "...",
+      "clientDataJSON": "...",
+      "signature": "...",
+      "userHandle": null
+    },
+    "clientExtensionResults": {}
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "userOpHash": "0x...",
+  "txHash": "0x...",
+  "walletMode": "SAFE_4337",
+  "success": true
+}
+```
+
+### ENABLE_RECOVERY example
+
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    {
+      "type": "ENABLE_RECOVERY",
+      "firstName": "Jean",
+      "lastName": "Dupont",
+      "birthDate": "1990-01-15",
+      "birthCity": "Paris",
+      "birthCountry": "France"
+    }
+  ]
+}
+```
+
+### CANCEL_RECOVERY example
+
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    { "type": "CANCEL_RECOVERY" }
+  ]
+}
+```
+
 ---
 
 ## SESSION MANAGEMENT
@@ -358,6 +460,8 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 | `GET /api/ibex/sepa/mandates/:id` | `GET /v1.2/sepa/mandates/:id` |
 | `PATCH /api/ibex/sepa/mandates/:id/status` | `PATCH /v1.2/sepa/mandates/:id/status` |
 | `POST /api/ibex/sepa/mandates/:id/cancel` | `POST /v1.2/sepa/mandates/:id/cancel` |
+| `POST /api/ibex/safes/operations` | `POST /v1.2/safes/operations` |
+| `PUT /api/ibex/safes/operations` | `PUT /v1.2/safes/operations` |
 
 ### Proxy rules
 
@@ -542,6 +646,14 @@ Implementation tip:
 - Payment history/status: `GET /v1.2/sepa/transactions` and `GET /v1.2/sepa/transactions/:id`.
 - Realtime status/balance signals: `fiat_transaction_update` and `fiat_balance_update`.
 
+### H) Safe operations (SIGN_MESSAGE, ENABLE_RECOVERY, CANCEL_RECOVERY)
+
+- 2-step flow: `POST /v1.2/safes/operations` (prepare — returns WebAuthn challenge) then `PUT /v1.2/safes/operations` (execute — submit signed credential).
+- `SIGN_MESSAGE`: EIP-191 personal_sign on behalf of the Safe.
+- `ENABLE_RECOVERY`: activates recovery module; Safe must be deployed first.
+- `CANCEL_RECOVERY`: disables previously enabled recovery module.
+- Execution result includes `userOpHash` (and optionally `txHash` for EOA_7702 mode).
+
 ---
 
 ## COMMON PITFALLS
@@ -594,5 +706,8 @@ Implementation tip:
 - [ ] Only one WS session per `(externalUserId, rpId)` is active at a time
 - [ ] Initial WS burst is handled idempotently (duplicate `user_data` tolerated)
 - [ ] `GET /v1.2/chains/` is used to gate transfer/recovery/automation/multi-sig per chain
+- [ ] Safe operations use 2-step flow: `POST /v1.2/safes/operations` (prepare) then `PUT /v1.2/safes/operations` (execute)
+- [ ] `ENABLE_RECOVERY` is only called on deployed Safes (not lazy/undeployed)
+- [ ] `CANCEL_RECOVERY` is only called when recovery is already enabled
 - [ ] UI uses scoped local cache (`${externalUserId}_*`) and incremental refresh strategy
 - [ ] UI shows real-time event log of API interactions

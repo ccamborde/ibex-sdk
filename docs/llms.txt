@@ -40,6 +40,23 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 - Do not invent demo/test data unless explicitly requested by the developer.
 - If demo/test seed is required, reuse only the canonical `FAUCET_*` keys defined in `AGENTS.md` (do not duplicate literal values here).
 
+## Safe Operations (SDK Scope)
+
+- Safe operations use a 2-step flow via `POST/PUT /v1.2/safes/operations`:
+  1. **Prepare** (POST): submit operation(s) → receive `credentialRequestOptions` (WebAuthn challenge)
+  2. **Execute** (PUT): submit signed `credential` (WebAuthn assertion) → on-chain execution returns `userOpHash`
+- Supported operations exposed by SDK:
+  - `SIGN_MESSAGE`: EIP-191 personal_sign. Body: `{ type: "SIGN_MESSAGE", message: "<string>" }`
+  - `ENABLE_RECOVERY`: activate recovery module on a deployed Safe. Body: `{ type: "ENABLE_RECOVERY", firstName, lastName, birthDate (YYYY-MM-DD), birthCity, birthCountry }`
+  - `CANCEL_RECOVERY`: disable previously enabled recovery. Body: `{ type: "CANCEL_RECOVERY" }`
+- Required request fields for all safe operations:
+  - `safeAddress` (string, required)
+  - `operations` (array, required)
+  - `chainId` (number, optional)
+  - `walletMode` (optional): `"SAFE_4337"` or `"EOA_7702"`
+- Safe must be deployed before `ENABLE_RECOVERY` (lazy/undeployed Safes will receive an error).
+- Safe must already have recovery enabled before `CANCEL_RECOVERY`.
+
 ## SEPA Payments and Mandates (SDK Scope)
 
 - IBAN management:
