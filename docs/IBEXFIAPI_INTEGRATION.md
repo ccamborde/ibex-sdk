@@ -22,13 +22,58 @@ The recommended UX is a **single-button flow**: attempt sign-in first, fall back
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `IBEX_API_URL` | `https://passkeys-testnet.ibex.fi` | Base URL of the IBEx API |
-| `rpId` | `widget-light.local`, `ibex.fi` | WebAuthn Relying Party ID — resolved from hostname |
+| `IBEX_RP_ID` | `localhost` or `demobaas-prat1.ibex.fi` | WebAuthn Relying Party ID — **must match the browser hostname** |
+| `PORT` | `3001` | Local dev server port |
 
 ### rpId resolution rules
 
 - `*.ibex.fi` or `ibex.fi` → `ibex.fi`
 - Any other domain → use as-is (e.g. `widget-light.local`)
 - Empty/localhost → `localhost`
+
+### rpId / WebAuthn consistency (critical)
+
+**`IBEX_RP_ID` must always match the hostname visible in the browser address bar.** This is a fundamental WebAuthn security constraint enforced by the browser — it cannot be bypassed by headers, query parameters, or code changes.
+
+#### How the auth chain works
+
+```
+Browser hostname ──► WebAuthn rpId ──► JWT issuer ──► API request rpId header
+       │                   │                │                    │
+       └───── all four must be the same value ─────────────────┘
+```
+
+1. The browser enforces that WebAuthn `rpId` is the page hostname (or a valid registrable domain suffix)
+2. IBEx signs the JWT with `issuer = rpId` from the sign-in request
+3. On subsequent API calls, the server verifies `JWT.iss == request rpId` — mismatch → 401
+4. The server verifies `authenticatorData.rpIdHash` against the rpId — mismatch → 401
+5. Users/credentials are stored per rpId — different rpId = different user namespace
+
+#### Valid local development configurations
+
+| Scenario | Browser URL | `IBEX_RP_ID` | Auth | Read | Write |
+|----------|-------------|-------------|------|------|-------|
+| A — localhost | `http://localhost:5173/` | `localhost` | OK | OK | OK (registered on testnet) |
+| B — custom host | `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | OK | OK | OK (registered on testnet) |
+
+Both `localhost` and `demobaas-prat1.ibex.fi` are registered rpIds on **testnet** (`passkeys-testnet.ibex.fi`). The rpId must be registered in IBEXSAFE for write operations — ask your IBEx administrator if deploying to a different environment.
+
+**Scenario A** is the simplest for quick dev iteration. **Scenario B** uses the production-like hostname:
+
+1. Add `127.0.0.1  demobaas-prat1.ibex.fi` to `/etc/hosts`
+2. Set `IBEX_RP_ID=demobaas-prat1.ibex.fi`
+3. Open `http://demobaas-prat1.ibex.fi:5173/` in browser
+
+#### Common mistake: rpId mismatch from localhost
+
+Setting `IBEX_RP_ID=demobaas-prat1.ibex.fi` while the browser is on `http://localhost:5173/` **will not work**:
+- WebAuthn will refuse the ceremony ("rpId is not a registrable domain suffix of the current domain")
+- Even if forced via header manipulation, the server will reject the credential (`rpIdHash` mismatch → 401)
+- Attempting to "split" rpId (API headers → `demobaas-prat1.ibex.fi`, WebAuthn → `localhost`) also fails because the server verifies both against the same rpId
+
+#### Proxy behavior
+
+When a Node.js proxy forwards requests to IBEx, there is no browser `Origin` header. IBEx resolves rpId from `X-Rp-Id` / `X-RpId` headers (or `rpId` query parameter). The proxy must send the same rpId that the browser used for the WebAuthn ceremony — which must match the browser hostname.
 
 ---
 
@@ -141,7 +186,7 @@ Headers: Content-Type: application/json
          X-RpId: <rpId>
 ```
 
-**Request body** — serialized WebAuthn assertion:
+**Request body** — serialized WebAuthn assertion + enrichment flags:
 
 ```json
 {
@@ -156,11 +201,38 @@ Headers: Content-Type: application/json
       "userHandle": "<base64url or null>"
     },
     "clientExtensionResults": {}
+  },
+  "includeBalance": true,
+  "includeTransactions": true,
+  "includeUserdata": true
+}
+```
+
+**Always include the three `include*` flags.** This returns all user data in the auth response, eliminating the need for a separate `GET /users/me` call after sign-in.
+
+**Response** — JWT tokens + enriched data:
+
+```json
+{
+  "access_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "subject": "<externalUserId>",
+  "issuer": "<rpId>",
+  "authMethod": "PASSKEY",
+  "safeAddress": { "421614": "0x..." },
+  "balance": { "0x...": { "address": "0x...", "balance": "123.45" } },
+  "transactions": { "total": 2, "page": 1, "data": [] },
+  "userdata": {
+    "addresses": { "status": 200, "data": { "count": 1, "wallets": [] } },
+    "balances": { "status": 200, "data": {} },
+    "kycStatus": { "status": 200, "data": { "kycLevel": "0", "verified": false } }
   }
 }
 ```
 
-**Response** — same JWT structure as sign-up.
+Key fields: `subject` = `externalUserId`, `userdata` = same shape as `GET /users/me` response.
 
 ### 3.3 Refresh token
 
@@ -189,23 +261,57 @@ Headers: Authorization: Bearer <access_token>
          X-RpId: <rpId>
 ```
 
-**Response:**
+**Response** — aggregated user profile with sections:
 
 ```json
 {
-  "externalUserId": "32365339-da63-440a-af96-b68759221d2e",
-  "subject": "32365339-da63-440a-af96-b68759221d2e",
-  "data": {
-    "app_key": "value"
-  }
+  "addresses": { "count": 1, "wallets": [] },
+  "balances": { "type": "crypto", "identifier": "0x..." },
+  "ibans": { "count": 5, "ibans": [] },
+  "signers": { "count": 1, "signers": [] },
+  "transactions": { "type": "crypto", "data": [] },
+  "kycStatus": {
+    "externalUserId": "604a81ce-...",
+    "kycLevel": "2",
+    "status": "verified",
+    "verified": true
+  },
+  "addressbook": { "entries": [] }
 }
 ```
 
-Notes:
-- Response shape may vary: data may appear under `data`, `userdata`, or as a flat object. Normalize accordingly.
-- The `externalUserId` (or `subject`) is the unique user identifier used for scoping local storage.
+**Important — `externalUserId` is NOT at the top level of this response.** See section 3.5 below for how to obtain it.
 
-### 3.5 Update user data
+Notes:
+- `GET /users/me` is an **aggregator** that returns multiple sections. If one section fails, it is omitted and an `errors` object may be present.
+- User data (key/value pairs set via `POST /users/me`) may appear inside the sections, not as a flat top-level `data` object.
+- Do **not** try to extract `externalUserId` from this response — it is not reliably present here (e.g. `kycStatus` may be absent if the user has no KY).
+
+### 3.5 Where to find `externalUserId`
+
+The `externalUserId` is the unique user identifier used for scoping local storage and session context. It is **not** in `GET /users/me` — extract it from auth responses.
+
+| Source | Location | Reliability |
+|--------|----------|-------------|
+| Auth response (sign-in/sign-up/refresh) | `response.subject` | **Always present** — preferred source |
+| JWT token | Decode JWT → `sub` claim | **Always present** — works anytime you have a stored token |
+
+**Best practice**: extract `externalUserId` from the **auth response `subject` field** immediately after sign-in/sign-up, then persist it in session.
+
+```
+// After POST /v1.2/auth/sign-in or POST /v1.2/auth/sign-up:
+authResponse = { access_token, refresh_token, subject, ... }
+externalUserId = authResponse.subject   // ← this IS the externalUserId
+store(externalUserId)
+```
+
+**Fallback**: if you need the `externalUserId` later and didn't persist it from auth, decode the stored `access_token` JWT and read the `sub` claim.
+
+**Common mistakes**:
+- Looking for `externalUserId` at the top level of `GET /users/me` — it does not exist there. The response is an aggregated object with sections (`addresses`, `balances`, `kycStatus`, etc.).
+- Looking for `externalUserId` in `kycStatus.externalUserId` — this only works if the user has KY data, which is not guaranteed.
+
+### 3.6 Update user data
 
 ```
 POST /v1.2/users/me
@@ -267,14 +373,19 @@ function authenticate():
                    with body { credential: serialize(attestation) }
         tokens = extractTokens(response)
 
-    // Step 3: Store tokens
+    // Step 3: Store tokens + externalUserId from auth response
     store(tokens.access_token, tokens.refresh_token)
+    externalUserId = tokens.subject   // ← auth response always has subject = externalUserId
+    store(externalUserId)
 
-    // Step 4: Load profile (do NOT refresh first — JWT is already valid)
-    profile = GET /v1.2/users/me
-              with headers { Authorization: Bearer <token>, X-IBEx-Auth: Bearer <token> }
-    store(profile.externalUserId)
-    cacheProfileData(profile.data)   // scope: ${externalUserId}_${key}
+    // Step 4: Use enriched data from auth response — do NOT call GET /users/me
+    // If includeUserdata was set in POST sign-in body:
+    //   tokens.userdata = same aggregated data as GET /users/me
+    // If includeBalance was set:
+    //   tokens.balance = user balances
+    // If includeTransactions was set:
+    //   tokens.transactions = transaction history
+    cacheUserData(tokens.userdata)    // scope: ${externalUserId}_*
 ```
 
 ---
@@ -396,14 +507,40 @@ If using a proxy with auto-decompression (e.g. Node.js `fetch`), strip `content-
 
 ## 9. rpId Registration Prerequisite
 
-The `rpId` used for WebAuthn **must be registered in IBEXSAFE**.
+The `rpId` used for WebAuthn **must be registered in IBEXSAFE** for write operations.
 
 | rpId status | Sign-in/Sign-up | GET /users/me | POST /users/me |
 |-------------|-----------------|---------------|----------------|
 | Registered  | ✅ Works        | ✅ Works       | ✅ Works        |
-| Not registered (e.g. `localhost`) | ✅ Works | ✅ Works | ❌ 400 `rpId is not valid` |
+| Not registered | ✅ Works | ✅ Works | ❌ 400 `rpId is not valid` |
 
 Write operations to `/users/me` **require** a registered rpId. Read operations work regardless.
+
+> **Note**: Both `localhost` and `demobaas-prat1.ibex.fi` are registered rpIds on **TESTNET** (`passkeys-testnet.ibex.fi`). The rpId must be registered in IBEXSAFE for your target environment — ask your IBEx administrator if unsure.
+
+### rpId mismatch — the #1 integration pitfall
+
+The most common integration failure is a **rpId mismatch** between the WebAuthn ceremony and subsequent API calls. This manifests as:
+
+1. Sign-in succeeds (200)
+2. First API calls succeed (same rpId)
+3. Some API calls suddenly return 401 — because a different part of the app sends a different rpId
+
+**Root cause**: the JWT has `issuer = rpId_from_signin`, but a subsequent request sends a different rpId in headers → server rejects with 401.
+
+**Diagnosis checklist**:
+- Check that the **browser hostname** matches `IBEX_RP_ID`
+- Check that the **proxy** forwards the same rpId value in `X-Rp-Id` / `X-RpId` headers as the one used at sign-in
+- Check that there is no code path that overrides rpId to a different value after auth
+- Remember: users are namespaced by rpId. A user created with `rpId=localhost` does not exist under `rpId=demobaas-prat1.ibex.fi`
+
+### Local development setup
+
+| Scenario | Browser URL | IBEX_RP_ID | Notes |
+|----------|-------------|-----------|-------|
+| A — Quick start | `http://localhost:5173/` | `localhost` | Everything works (registered on testnet) |
+| B — Custom hostname | `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | Everything works (requires `/etc/hosts`: `127.0.0.1 demobaas-prat1.ibex.fi`) |
+| ⛔ Invalid | `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | WebAuthn refuses the rpId. Cannot work. |
 
 ---
 
@@ -431,26 +568,26 @@ Always normalize: check `data` → `userdata` → root object.
 
 ### User ID extraction
 
-The external user identifier may appear as:
-- `externalUserId`
-- `subject`
-- `sub`
-- `id`
+The `externalUserId` is **not** in the `GET /users/me` response. Extract it from:
+1. **Auth response** (`POST sign-in/sign-up/refresh`): always returned as `subject`
+2. **JWT `sub` claim**: decode the stored `access_token`
 
-Check in that priority order.
+Do **not** look for `externalUserId` at the top level of `GET /users/me` — it is an aggregated response with sections, not a flat user object.
 
 ---
 
 ## 11. Quick Debug Checklist
 
 - [ ] `IBEX_API_URL` is configured and reachable
-- [ ] `rpId` resolves correctly from hostname
+- [ ] **`IBEX_RP_ID` matches the hostname in the browser address bar** (e.g. `localhost` for `http://localhost:5173/`, `demobaas-prat1.ibex.fi` for `http://demobaas-prat1.ibex.fi:5173/`)
+- [ ] rpId is consistent across the entire chain: browser WebAuthn → proxy headers → JWT issuer → API verification
 - [ ] Sign-in/sign-up options include `?wallet=passkeys&rpId=<rpId>`
 - [ ] Both `X-Rp-Id` and `X-RpId` headers are sent
 - [ ] base64url values are decoded to ArrayBuffer before WebAuthn calls
 - [ ] PRF extension values are decoded to ArrayBuffer (not left as strings)
 - [ ] Auth requests include both `Authorization` and `X-IBEx-Auth`
 - [ ] No refresh call after successful auth (token is already valid)
-- [ ] POST `/users/me` uses a registered rpId (not `localhost`)
+- [ ] POST `/users/me` uses a registered rpId (both `localhost` and `demobaas-prat1.ibex.fi` are registered on testnet)
 - [ ] CORS is handled via proxy (not direct browser-to-IBEx)
 - [ ] Proxy strips `content-encoding` from upstream responses
+- [ ] No attempt to "split" rpId between API headers and WebAuthn ceremony

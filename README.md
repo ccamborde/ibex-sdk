@@ -1,5 +1,58 @@
 # IBEx SDK
 
+## Quick Start
+
+1. Copy the environment file and fill in values:
+
+```bash
+cp env/.env.example env/.env.local
+```
+
+2. Required environment variables:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `IBEX_API_URL` | `https://passkeys-testnet.ibex.fi` | Base URL of the IBEx API |
+| `IBEX_RP_ID` | `localhost` or `demobaas-prat1.ibex.fi` | WebAuthn Relying Party ID — **must match the browser hostname** (see below) |
+| `PORT` | `3001` | Local dev server port |
+
+## rpId and WebAuthn — Local Development Setup
+
+WebAuthn requires that the `rpId` matches the hostname visible in the browser address bar (or a valid registrable domain suffix). **This is enforced by the browser and cannot be bypassed.**
+
+### Scenario A — `localhost` (quick start)
+
+```bash
+# env/.env.local
+IBEX_RP_ID=localhost
+```
+
+Open `http://localhost:5173/` in your browser. All operations work — `localhost` is a registered rpId on **testnet**.
+
+### Scenario B — Custom hostname (full functionality)
+
+1. Add to `/etc/hosts`:
+   ```
+   127.0.0.1  demobaas-prat1.ibex.fi
+   ```
+2. Set in `env/.env.local`:
+   ```bash
+   IBEX_RP_ID=demobaas-prat1.ibex.fi
+   ```
+3. Open `http://demobaas-prat1.ibex.fi:5173/` in your browser (not `localhost`).
+
+All endpoints work including write operations.
+
+### What does NOT work
+
+| Browser URL | `IBEX_RP_ID` | Result |
+|-------------|-------------|--------|
+| `http://localhost:5173/` | `localhost` | Everything OK (registered on testnet) |
+| `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | Everything OK |
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | **FAILS** — WebAuthn rejects rpId |
+
+Users and passkey credentials are namespaced by rpId. A passkey created under `localhost` is invisible under `demobaas-prat1.ibex.fi` and vice versa — this is by design.
+
 ## Recommended Model
 
 For best results, use **Claude Opus 4.6 (Thinking)**.
@@ -11,7 +64,7 @@ Use the following prompt:
 ```text
 Read these files carefully in this exact order:
 
-1. `env/.env.local` — configuration (IBEX_API_URL, PORT)
+1. `env/.env.local` — configuration (IBEX_API_URL, IBEX_RP_ID, PORT)
 2. `docs/IBEXFIAPI_INTEGRATION.md` — complete technical reference for the IBEx.Fi API
 3. `docs/IBEXFIAPI_WEBSOCKET.md` — WebSocket protocol, events, close codes, reconnection rules
 4. `docs/llms.txt` — quick AI integration guardrails (read first)

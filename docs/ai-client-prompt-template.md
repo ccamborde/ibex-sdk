@@ -26,6 +26,10 @@ If a requirement conflicts with those files, follow repository files.
 ## Environment
 
 - `IBEX_API_URL=https://passkeys-testnet.ibex.fi`
+- `IBEX_RP_ID=localhost` (when browser is on `http://localhost:PORT/`)
+- `IBEX_RP_ID=demobaas-prat1.ibex.fi` (when browser is on `http://demobaas-prat1.ibex.fi:PORT/`, requires `/etc/hosts` entry)
+
+**CRITICAL**: `IBEX_RP_ID` must always match the hostname in the browser address bar. See rpId section below.
 
 ## Core Goals
 
@@ -46,15 +50,39 @@ Out of scope unless explicitly requested:
 - domain/rpId management UI
 - theme/skin admin UI
 
+## rpId / WebAuthn Consistency (Read This First)
+
+`IBEX_RP_ID` must match the hostname in the browser address bar. This is a WebAuthn browser constraint — no workaround exists.
+
+| Browser URL | `IBEX_RP_ID` | Result |
+|-------------|-------------|--------|
+| `http://localhost:5173/` | `localhost` | Everything OK (`localhost` is registered on testnet) |
+| `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | Everything OK |
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | **FAILS** — WebAuthn rejects rpId |
+
+For Scenario B, add `127.0.0.1 demobaas-prat1.ibex.fi` to `/etc/hosts`.
+
+**Never** attempt to:
+- Set `IBEX_RP_ID` to a value that doesn't match the browser hostname
+- Split rpId between API headers and WebAuthn ceremony
+- Add `VITE_IBEX_RP_ID` to override rpId away from the browser hostname
+- "Fix" rpId mismatch 401s by changing rpId on only one side
+
+Users/credentials are namespaced by rpId: a user under `localhost` is invisible under `demobaas-prat1.ibex.fi`.
+
+The proxy (Node.js backend) must forward the same rpId in `X-Rp-Id` / `X-RpId` headers as the browser used for WebAuthn.
+
 ## Critical Constraints
 
 - Sign-in first, sign-up fallback.
 - Persist auth tokens immediately on auth success.
 - Commit auth session context atomically (`access_token`, `refresh_token`, `rpId`, auth-header source) before launching parallel protected bootstrap calls.
-- Prefer enriched sign-in payload when supported (for example `includeBalance`, `includeTransactions`, `includeUserdata`) to minimize immediate HTTP fetches.
+- **Always use enriched sign-in**: pass `includeBalance: true`, `includeTransactions: true`, `includeUserdata: true` in the `POST /v1.2/auth/sign-in` body. The response includes all user data — do **not** call `GET /users/me` after sign-in.
+- The API has a strict anti-flood guard (`429`). Calling the same endpoint twice rapidly for the same user triggers rate limiting. Use the enriched sign-in response instead of separate calls.
 - Never refresh immediately after successful auth.
 - Refresh only on `401/403` with single-flight lock.
 - Never refresh recursively on refresh endpoint failure.
+- Extract `externalUserId` from auth response `subject` field (NOT from `GET /users/me` which is an aggregated response without `externalUserId` at top level). Fallback: decode JWT `sub` claim.
 - Persist and propagate `externalUserId` in app session/proxy context.
 - Ensure rpId propagation is consistent for all IBEX calls, including refresh path (`POST /v1.2/auth/refresh`) in your proxy/session layer.
 - WS auth is message-based (`type: "auth"`), sent immediately after socket open.
@@ -139,6 +167,8 @@ Add basic coverage for:
 
 ## Final Acceptance Checklist
 
+- [ ] `IBEX_RP_ID` matches the browser hostname (no rpId mismatch)
+- [ ] rpId is consistent across: browser hostname, WebAuthn ceremony, proxy headers, JWT issuer
 - [ ] Sign-up/sign-in works with passkeys
 - [ ] Session refresh is transparent and stable
 - [ ] No refresh storms under parallel request failures

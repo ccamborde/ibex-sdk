@@ -6,7 +6,7 @@ This file defines mandatory rules for AI coding agents working on this repositor
 
 Before implementing anything, read in this exact order:
 
-1. `env/.env.local`
+1. `env/.env.local` (copy from `env/.env.example` if missing)
 2. `docs/IBEXFIAPI_INTEGRATION.md`
 3. `docs/IBEXFIAPI_ENDPOINTS_v1.2.md`
 4. `docs/IBEXFIAPI_WEBSOCKET.md`
@@ -14,13 +14,61 @@ Before implementing anything, read in this exact order:
 6. `docs/llms.txt`
 7. `docs/llms-full.txt`
 
+## rpId / WebAuthn Consistency (Critical — Read First)
+
+**The `IBEX_RP_ID` must always match the hostname in the browser address bar.** This is a WebAuthn security constraint enforced by the browser — there is no workaround, no override, no "header trick" that can bypass it.
+
+### Why this matters
+
+The entire auth chain must be consistent:
+
+1. **Browser WebAuthn ceremony** (`navigator.credentials.get/create`): the browser enforces that `rpId` equals the page hostname (or a valid registrable domain suffix). From `http://localhost:5173/`, the only valid rpId is `localhost`.
+2. **JWT issuer**: the IBEx server signs the JWT with `issuer = rpId`. If sign-in uses `rpId=localhost`, the JWT will have `iss: "localhost"`.
+3. **API request verification**: all subsequent API calls send rpId in headers (`X-Rp-Id`, `X-RpId`). The server checks that the JWT `iss` matches the request rpId. If they differ → `401 Unauthorized`.
+4. **Credential verification**: the server verifies WebAuthn credentials against `rpId`. If the browser signed with `rpId=localhost` but the server expects `rpId=demobaas-prat1.ibex.fi`, the `authenticatorData.rpIdHash` won't match → `401`.
+5. **User namespace**: users and credentials are stored per rpId in the database. A user created under `rpId=localhost` is invisible under `rpId=demobaas-prat1.ibex.fi`.
+
+### Valid configurations
+
+| Environment | Browser URL | `IBEX_RP_ID` | WebAuthn rpId | JWT issuer | Result |
+|-------------|-------------|--------------|---------------|------------|--------|
+| Dev localhost | `http://localhost:5173/` | `localhost` | `localhost` | `localhost` | Everything OK (localhost is registered on testnet) |
+| Dev custom hostname | `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | `demobaas-prat1.ibex.fi` | `demobaas-prat1.ibex.fi` | Everything OK |
+| Production | `https://demobaas-prat1.ibex.fi/` | auto (via Origin header) | `demobaas-prat1.ibex.fi` | `demobaas-prat1.ibex.fi` | Everything OK |
+
+### Invalid configurations (AI agents: never do this)
+
+| Browser URL | `IBEX_RP_ID` | Failure |
+|-------------|--------------|---------|
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | WebAuthn refuses: "rpId is not a registrable domain suffix of the current domain" |
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` + rpId split (headers vs WebAuthn) | Server rejects credential: rpIdHash mismatch → 401 |
+
+### Setup for dev with custom hostname (Scenario B)
+
+1. Add to `/etc/hosts`: `127.0.0.1  demobaas-prat1.ibex.fi`
+2. Set `IBEX_RP_ID=demobaas-prat1.ibex.fi` in `env/.env.local`
+3. Open browser at `http://demobaas-prat1.ibex.fi:<PORT>/` (NOT `http://localhost:<PORT>/`)
+
+### Forbidden rpId manipulations
+
+- **Never** attempt to split rpId between API headers and WebAuthn ceremony (e.g. sending `X-Rp-Id: demobaas-prat1.ibex.fi` while using `rpId: localhost` in WebAuthn options). The server verifies both against the same rpId.
+- **Never** force `IBEX_RP_ID` to a value that doesn't match the browser hostname.
+- **Never** add `VITE_IBEX_RP_ID` or similar frontend env vars to override rpId resolution away from the actual browser hostname.
+- **Never** try to "fix" rpId mismatch 401s by changing the rpId on only one side (headers OR WebAuthn). Both must match the browser hostname.
+
+### Proxy (Node.js backend) rpId behavior
+
+When a Node.js proxy forwards requests to IBEx, there is no browser `Origin` header. The server resolves rpId from the `X-Rp-Id` / `X-RpId` headers (or `rpId` query parameter). The proxy **must** forward the same rpId that was used for the WebAuthn ceremony in the browser. This is the rpId from `IBEX_RP_ID` env var — which must match the browser hostname.
+
 ## Integration Invariants (Do Not Break)
 
 - Auth flow must be passkey sign-in first, then sign-up fallback.
 - On successful sign-in/sign-up, persist `access_token` and `refresh_token` immediately.
 - After auth success, commit session context atomically (`access_token`, `refresh_token`, `rpId`, auth headers source) before starting parallel `/users/me*` bootstrap calls.
 - Do not call refresh right after auth success.
-- Prefer enriched sign-in data when available (for example `includeBalance`, `includeTransactions`, `includeUserdata`) to reduce post-login request fan-out.
+- **Use enriched sign-in**: always pass `includeBalance: true`, `includeTransactions: true`, `includeUserdata: true` in the `POST /v1.2/auth/sign-in` body. The response will include all user data (balances, transactions, userdata) alongside the JWT tokens — **no need to call `GET /users/me` after sign-in**.
+- Do **not** call `GET /users/me` right after sign-in if you used enrichment flags — this wastes a request and risks a `429` (anti-flood).
+- The API has a strict anti-flood guard: calling the same endpoint twice in rapid succession for the same user triggers a `429 Too Many Requests`. Design your post-login flow to use the sign-in enrichment response instead of separate API calls.
 - Protected requests must send both headers:
   - `Authorization: Bearer <access_token>`
   - `X-IBEx-Auth: Bearer <access_token>`
@@ -28,7 +76,8 @@ Before implementing anything, read in this exact order:
   - `X-Rp-Id`
   - `X-RpId`
 - Propagate rpId/header context consistently on refresh path as well (`POST /v1.2/auth/refresh` in app proxy/session layer).
-- Persist `externalUserId` from `/v1.2/users/me` and keep app state scoped per external user.
+- Extract `externalUserId` from the auth response `subject` field (sign-in/sign-up/refresh), NOT from `GET /users/me`. Fallback: decode JWT `sub` claim. `GET /users/me` is an aggregated response — `externalUserId` is not at the top level.
+- Keep app state scoped per `externalUserId`.
 - Persist/cache user-scoped data in local storage (`${externalUserId}_*`) and use incremental refresh.
 - For address-book IBAN creation, always send `iban` and `respondingPspBic` together.
 - Do not implement a separate direct VoP call for address-book creation.
@@ -95,7 +144,7 @@ Out of scope unless explicitly requested:
 
 - Never invent endpoints, request fields, response fields, or auth headers.
 - Never invent payload examples as if they were official API contracts.
-- Never call `/v1.2/sepa/vop` for address-book creation flow.
+- Never call any direct VoP endpoint for address-book creation flow.
   - Use `POST /v1.2/users/me/addressbook` with `iban` + `respondingPspBic`.
 - Never invent demo users, IBANs, wallets, or chain IDs unless explicitly requested by a human developer.
 - If a value is missing, ask the developer or use only values already documented in this repository.

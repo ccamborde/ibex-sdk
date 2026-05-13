@@ -25,6 +25,10 @@ Build a self-contained web widget that demonstrates IBEx.Fi integration:
 Base URL is configured via environment variable `IBEX_API_URL`.
 Example: `https://passkeys-testnet.ibex.fi`
 
+The WebAuthn Relying Party ID is configured via `IBEX_RP_ID`.
+**This value must match the hostname visible in the browser address bar** (see rpId section below).
+Example: `localhost` (for `http://localhost:PORT/`) or `demobaas-prat1.ibex.fi` (for `http://demobaas-prat1.ibex.fi:PORT/`)
+
 ### Endpoints
 
 | Operation | Method | Path | Auth required |
@@ -51,7 +55,18 @@ Example: `https://passkeys-testnet.ibex.fi`
 | Prepare safe operation(s) | POST | `/v1.2/safes/operations` | Yes |
 | Execute safe operation(s) | PUT | `/v1.2/safes/operations` | Yes |
 
-`POST /v1.2/auth/sign-in` can return an enriched payload when supported by backend flags (for example `includeBalance`, `includeTransactions`, `includeUserdata`). Prefer this at login to reduce immediate extra HTTP reads.
+`POST /v1.2/auth/sign-in` accepts enrichment flags in the request body:
+
+```json
+{
+  "credential": { ... },
+  "includeBalance": true,
+  "includeTransactions": true,
+  "includeUserdata": true
+}
+```
+
+When set, the auth response includes `balance`, `transactions`, and `userdata` alongside the JWT tokens — **eliminating the need for a separate `GET /users/me` call after sign-in**. Always use these flags. Calling `GET /users/me` right after an enriched sign-in wastes a request and risks a `429` (the API has a strict anti-flood guard that blocks rapid duplicate calls per user).
 
 ### Required Headers
 
@@ -70,6 +85,22 @@ Example: `https://passkeys-testnet.ibex.fi`
 - `*.ibex.fi` or `ibex.fi` → `ibex.fi`
 - Any other domain → use hostname as-is
 - localhost → `localhost`
+
+### rpId / WebAuthn Consistency (Critical)
+
+**`IBEX_RP_ID` must always match the hostname in the browser address bar.** This is enforced by WebAuthn at the browser level and cannot be bypassed.
+
+The full consistency chain: `browser hostname = WebAuthn rpId = JWT issuer = API rpId headers`. If any part differs → 401.
+
+| Browser URL | `IBEX_RP_ID` | Result |
+|-------------|-------------|--------|
+| `http://localhost:5173/` | `localhost` | Everything OK (`localhost` is registered on testnet) |
+| `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | Everything OK (requires `/etc/hosts` entry) |
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | **FAILS** — WebAuthn rejects mismatched rpId |
+
+For full write functionality in local dev, add `127.0.0.1 demobaas-prat1.ibex.fi` to `/etc/hosts` and open the app via that hostname.
+
+**Never** attempt to split rpId (API headers → one value, WebAuthn ceremony → another). The server verifies both sides against the same rpId. Users/credentials are namespaced by rpId (different rpId = different user).
 
 ---
 
@@ -98,13 +129,15 @@ authenticate():
     // Step 3: Commit session atomically — do NOT call /auth/refresh here
     save(tokens.access_token, tokens.refresh_token)
     save(rpId)
+    externalUserId = tokens.subject   // ← auth response always has subject = externalUserId
+    save(externalUserId)
     setHttpAuthContext(access_token=tokens.access_token, rpId=rpId)
 
-    // Step 4: Only now start protected bootstrap calls
-    profile = GET /v1.2/users/me (with auth headers)
-    save(profile.externalUserId)
-    for each (key, value) in profile.data:
-        localStorage[externalUserId + "_" + key] = value
+    // Step 4: Use enriched data from sign-in — do NOT call GET /users/me
+    // tokens.userdata contains the same data as GET /users/me (if includeUserdata was set)
+    // tokens.balance contains balances (if includeBalance was set)
+    // tokens.transactions contains history (if includeTransactions was set)
+    cacheUserData(tokens.userdata)    // scope: ${externalUserId}_*
 ```
 
 Bootstrap rule:
@@ -195,16 +228,21 @@ decode: atob(input.replace('−','+').replace('_','/') + padding)
 
 ### GET /users/me response
 
+`GET /users/me` is an **aggregator** — the response contains sections, not a flat user object:
+
 ```json
 {
-  "externalUserId": "<uuid>",
-  "subject": "<uuid>",
-  "data": { "key": "value" }
+  "addresses": { "count": 1, "wallets": [] },
+  "balances": { "type": "crypto", "identifier": "0x..." },
+  "ibans": { "count": 5, "ibans": [] },
+  "signers": { "count": 1, "signers": [] },
+  "transactions": { "type": "crypto", "data": [] },
+  "kycStatus": { "externalUserId": "604a81ce-...", "kycLevel": "2", "status": "verified" },
+  "addressbook": { "entries": [] }
 }
 ```
 
-Note: user data may appear under `data`, `userdata`, or as flat root object. Normalize accordingly.
-User ID may appear as `externalUserId`, `subject`, `sub`, or `id`.
+**`externalUserId` is NOT at the top level of this response.** Extract it from the **auth response** (`subject` field) or by decoding the JWT `sub` claim. Do not rely on `kycStatus.externalUserId` — `kycStatus` may be absent if the user has no KY data.
 
 ### POST /users/me request body
 
@@ -488,12 +526,14 @@ Rules:
 
 ## rpId REGISTRATION
 
-The rpId must be registered in **IBEXSAFE** for full functionality:
+The rpId must be registered in **IBEXSAFE** for write operations:
 
 | rpId status | Auth | GET /users/me | POST /users/me |
 |-------------|------|---------------|----------------|
 | Registered | ✅ | ✅ | ✅ |
-| Not registered (e.g. `localhost`) | ✅ | ✅ | ❌ 400 |
+| Not registered | ✅ | ✅ | ❌ 400 |
+
+Both `localhost` and `demobaas-prat1.ibex.fi` are registered rpIds on **testnet**. The rpId must be registered in IBEXSAFE for your target environment.
 
 ---
 
@@ -666,10 +706,15 @@ Implementation tip:
 | 401 on `/users/me` after successful auth | Missing auth headers or wrong header name | Send both `Authorization` AND `X-IBEx-Auth` |
 | Repeated 401 on `/auth/refresh` with parallel API calls | Multiple requests trigger refresh concurrently | Add a global refresh lock + one shared in-flight refresh promise |
 | 401 immediately after `AUTH_COMPLETE_OK` | Protected calls started before session context commit (token/rpId/header source race) | Commit session atomically first, then start `/users/me*` bootstrap calls |
-| 400 `rpId is not valid` on POST `/users/me` | rpId not registered in IBEXSAFE | Register rpId or use a registered one |
+| 400 `rpId is not valid` on POST `/users/me` | rpId not registered in IBEXSAFE | Register rpId in IBEXSAFE for your environment (both `localhost` and `demobaas-prat1.ibex.fi` are registered on testnet) |
 | Token appears valid but fails | `wallet=passkeys` query param missing from options request | Always include `?wallet=passkeys&rpId=<rpId>` |
+| WebAuthn error "rpId is not a registrable domain suffix" | `IBEX_RP_ID` doesn't match browser hostname | Set `IBEX_RP_ID` to the exact hostname in the browser address bar |
+| 401 on some calls after successful sign-in | rpId mismatch: sign-in used one rpId, later calls use another | Ensure the same rpId is used everywhere — browser hostname, WebAuthn, proxy headers, JWT verification |
+| 401 when backend proxy verifies token | Proxy sends different rpId than the one used at sign-in | Proxy must forward the same `IBEX_RP_ID` that matches the browser hostname used during auth |
+| 429 Too Many Requests after sign-in | Code calls `GET /users/me` right after enriched sign-in | Use `includeBalance`, `includeTransactions`, `includeUserdata` in POST sign-in body and use the response data directly — no extra call needed |
 | Stale session on page reload | Old token in storage, no validation | On init, try GET `/users/me`; if 401, clear session |
-| 401 on many `/users/me/*` endpoints despite valid auth flow | Missing external user context in app proxy/session layer | Persist `externalUserId` from `/users/me` and propagate it in your own backend session model for all proxied calls (including refresh context) |
+| 401 on many `/users/me/*` endpoints despite valid auth flow | Missing external user context in app proxy/session layer | Persist `externalUserId` from auth response `subject` field and propagate it in your own backend session model for all proxied calls (including refresh context) |
+| "externalUserId not found" after GET /users/me | Code looks for `externalUserId` at top level of GET /users/me response | `externalUserId` is NOT in GET /users/me — extract it from auth response `subject` field or decode JWT `sub` claim |
 | WS reconnect loop with repeated auth failures | Reconnect attempts happen without valid refreshed token | Use one refresh path, then reconnect once with backoff; if still unauthorized, force logout |
 | WS `ALREADY_CONNECTED` errors | Multiple concurrent sockets for same `(externalUserId, rpId)` | Maintain one active socket per user/rpId and close old socket on re-login before opening a new one |
 | Missing realtime updates after connect | Client expects fixed event order or one-shot `user_data` | Handle initial burst idempotently; do not rely on strict ordering; accept duplicate `user_data` |
@@ -680,7 +725,9 @@ Implementation tip:
 
 ## CHECKLIST
 
-- [ ] rpId resolves correctly from hostname
+- [ ] **`IBEX_RP_ID` matches the browser hostname** (localhost for localhost, demobaas-prat1.ibex.fi for that domain)
+- [ ] rpId is consistent across the entire chain: browser → WebAuthn → proxy headers → JWT issuer
+- [ ] No rpId "split" between API headers and WebAuthn ceremony
 - [ ] CORS proxy is set up for all `/v1.2/*` endpoints
 - [ ] Sign-in/sign-up options include `?wallet=passkeys&rpId=<rpId>`
 - [ ] Both `X-Rp-Id` and `X-RpId` headers sent on all requests

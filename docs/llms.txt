@@ -5,7 +5,8 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 ## Mandatory API Behavior
 
 - Use `GET/POST /v1.2/auth/sign-in` first, then fallback to `GET/POST /v1.2/auth/sign-up`.
-- Prefer enriched sign-in completion payload when available (`includeBalance`, `includeTransactions`, `includeUserdata`) to reduce immediate post-login HTTP fan-out.
+- **Use enriched sign-in** (critical): always pass `includeBalance: true`, `includeTransactions: true`, `includeUserdata: true` in the `POST /v1.2/auth/sign-in` body. The auth response will include all user data — **do not call `GET /users/me` after sign-in**.
+- The API has a strict anti-flood guard (`429 Too Many Requests`) that blocks rapid duplicate calls per user. If you call `GET /users/me` right after an enriched sign-in, you waste a request and risk a 429.
 - Persist tokens returned by auth immediately (`access_token`, `refresh_token`).
 - After auth success, complete session bootstrap atomically before parallel API calls:
   - persist `access_token`, `refresh_token`, resolved `rpId`,
@@ -28,7 +29,10 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
   - `X-IBEx-Auth: Bearer <access_token>`
 - Send `X-Rp-Id` and `X-RpId` on all requests.
 - Apply the same rpId propagation rules to refresh routes (`POST /v1.2/auth/refresh`) in app proxy/session context.
-- Persist `externalUserId` from `/v1.2/users/me` and propagate it in your app session/proxy context for all user-scoped calls.
+- Extract `externalUserId` from the **auth response `subject` field** (sign-in/sign-up/refresh) — NOT from `GET /users/me`.
+  - `GET /users/me` is an aggregated response (sections: `addresses`, `balances`, `kycStatus`, etc.) — `externalUserId` is not at the top level.
+  - Fallback: decode the stored JWT `access_token` → `sub` claim.
+- Persist `externalUserId` and propagate it in your app session/proxy context for all user-scoped calls.
 - Persist normalized user data in local storage scoped by external user (`${externalUserId}_*`) and refresh UI from that cache first, then network.
 
 ## Address Book + VoP Clarification
@@ -84,6 +88,43 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
 - These are DevTools/admin helpers (not end-user production flows).
 - Keep tenant/rpId consistency for the whole test tuple.
 - Reuse only canonical `FAUCET_*` keys from `AGENTS.md` (do not duplicate literal faucet values here).
+
+## Environment Variables
+
+| Variable | Example | Purpose |
+|----------|---------|---------|
+| `IBEX_API_URL` | `https://passkeys-testnet.ibex.fi` | Base URL of the IBEx API |
+| `IBEX_RP_ID` | `localhost` or `demobaas-prat1.ibex.fi` | WebAuthn Relying Party ID — **must match browser hostname** |
+| `PORT` | `3001` | Local dev server port |
+
+Copy `env/.env.example` to `env/.env.local` before starting.
+
+## rpId / WebAuthn — CRITICAL CONSTRAINT
+
+**`IBEX_RP_ID` must always equal the hostname in the browser address bar.** This is a browser-level WebAuthn security rule that cannot be bypassed.
+
+### The full auth consistency chain
+
+```
+Browser hostname = WebAuthn rpId = JWT issuer = API request rpId (headers)
+```
+
+If any link in this chain differs → 401 Unauthorized.
+
+### Valid dev setups
+
+| Browser URL | `IBEX_RP_ID` | Works? |
+|-------------|-------------|--------|
+| `http://localhost:5173/` | `localhost` | Everything OK (`localhost` is registered on testnet) |
+| `http://demobaas-prat1.ibex.fi:5173/` | `demobaas-prat1.ibex.fi` | Everything OK (requires `/etc/hosts`: `127.0.0.1 demobaas-prat1.ibex.fi`) |
+| `http://localhost:5173/` | `demobaas-prat1.ibex.fi` | **FAILS** — WebAuthn rejects rpId |
+
+### Forbidden approaches (do not attempt)
+
+- Never set `IBEX_RP_ID` to a domain that differs from the browser hostname
+- Never "split" rpId (API headers → one value, WebAuthn → another) — the server verifies both sides
+- Never add `VITE_IBEX_RP_ID` or frontend overrides to force a different rpId than the browser hostname
+- Users/credentials are namespaced by rpId: `localhost` user ≠ `demobaas-prat1.ibex.fi` user
 
 ## Proxy Requirement
 
