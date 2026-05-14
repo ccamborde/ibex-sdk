@@ -169,7 +169,9 @@ If any link in this chain differs → 401 Unauthorized.
   - HTTP: `users/me -> addressbook.data[]`
   - WS snapshot: `user_data -> data.addressbook.data.data[]` (envelope mode)
 - Balances:
-  - HTTP: `users/me -> balances`
+  - HTTP: `getMeBalances()` → `GET /v1.2/users/me/balances`
+    - no `blockchainId`: aggregated across all chains (`crypto`, `fiat`, `totals`)
+    - with `blockchainId`: scoped to one chain (`balance.tokens[]`)
   - WS: `balance_data`, `balance_update`, `fiat_balance_update`
 - Transactions:
   - HTTP: `users/me -> transactions`

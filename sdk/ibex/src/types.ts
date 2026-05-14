@@ -67,6 +67,8 @@ export type IbexHttpError = Error & {
 
 export type IbexBalancesQuery = {
   walletAddress?: string;
+  iban?: string;
+  blockchainId?: string | number;
   includeZero?: boolean;
   includePrices?: boolean;
   page?: number;
@@ -154,11 +156,14 @@ export type IbexAddAddressBookCryptoInput = {
 
 export type IbexBalanceToken = {
   tokenAddress?: string;
+  primaryAddress?: string;
   symbol?: string;
   name?: string;
   decimals?: number;
   balance?: string;
   tokenType?: string;
+  status?: string;
+  source?: string;
   price?: number;
   value?: number;
   price_usd?: number;
@@ -180,6 +185,9 @@ export type IbexUserBalancesResponse = {
   blockchainId?: string | number;
   prices_available?: boolean;
   balance?: IbexBalancesBucket;
+  crypto?: JsonObject;
+  fiat?: JsonObject;
+  totals?: JsonObject;
 } & JsonObject;
 
 export type IbexTransaction = {

@@ -690,6 +690,10 @@ Use this section to avoid guessing payload paths.
 
 ### D) FIAT + CRYPTO balances
 
+- HTTP (`GET /v1.2/users/me/balances`) chain behavior:
+  - **No `blockchainId`**: aggregated mode — returns balances across **all chains** (response shape: `{ crypto, fiat, totals }`)
+  - **With `blockchainId`**: scoped mode — returns balances for one chain (response shape: `{ type, identifier, balance: { tokens[] } }`)
+  - Optional scoping: `walletAddress` (one wallet) or `iban` (one IBAN); mutually exclusive.
 - HTTP (`GET /v1.2/users/me`) typical path:
   - `balances` section (commonly includes `type`, `identifier`, `balance.tokens[]`, etc.)
 - WS snapshot/response:

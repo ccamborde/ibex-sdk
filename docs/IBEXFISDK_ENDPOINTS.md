@@ -175,11 +175,16 @@ Expected SDK result:
 
 - Endpoint: `GET /v1.2/users/me/balances`
 - Supported query params in SDK:
-  - `walletAddress?: string`
+  - `walletAddress?: string` — scope to a single wallet
+  - `iban?: string` — scope to a single IBAN (mutually exclusive with `walletAddress`)
+  - `blockchainId?: string | number` — scope to a single chain; omit for all-chain aggregated mode
   - `includeZero?: boolean`
   - `includePrices?: boolean`
   - `page?: number`
   - `limit?: number`
+- Chain behavior:
+  - **No `blockchainId`**: returns balances across all chains (aggregated mode — response includes `crypto`, `fiat`, `totals`)
+  - **With `blockchainId`**: returns balances for that chain only (scoped mode — response includes `balance` bucket)
 
 ### `getMeTransactions(query?)`
 
