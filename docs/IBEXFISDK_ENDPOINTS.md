@@ -21,6 +21,8 @@ The SDK currently integrates:
   - sign message (EIP-191)
   - enable recovery
   - cancel recovery
+  - swap from quote
+- Swap quote (get DEX quotes from COWSWAP / 1INCH)
 - SEPA resources:
   - IBAN add/list
   - payment intent/confirmation
@@ -107,6 +109,8 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `signMessage(safeAddress, message, options?)` | `POST` | `/v1.2/safes/operations` |
 | `enableRecovery(safeAddress, identity, options?)` | `POST` | `/v1.2/safes/operations` |
 | `cancelRecovery(safeAddress, options?)` | `POST` | `/v1.2/safes/operations` |
+| `getSwapQuote(query)` | `GET` | `/v1.2/safes/swap/quote` |
+| `swapFromQuote(safeAddress, quoteId, options?)` | `POST` | `/v1.2/safes/operations` |
 
 ## Detailed Endpoint Usage
 
@@ -437,6 +441,37 @@ All Safe operations follow a two-step flow: **prepare** (POST) returns a WebAuth
 - Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
 - Note: Safe must already have recovery enabled.
 
+### 6) Swap Quote
+
+### `getSwapQuote(query)`
+
+- Endpoint: `GET /v1.2/safes/swap/quote`
+- Purpose: get a swap quote from COWSWAP and/or 1INCH. Uses the authenticated user's first Safe as receiver when `safeAddress` is not provided.
+- Supported query params in SDK:
+  - `sellTokenAddress: string` (required, EVM token address to sell)
+  - `buyTokenAddress: string` (required, EVM token address to buy)
+  - `amount: string` (required, human-readable sell amount)
+  - `chainId?: number` (optional, defaults to environment chain)
+  - `safeAddress?: string` (optional, defaults to user's first Safe)
+  - `provider?: "COWSWAP" | "1INCH" | "BOTH"` (optional, defaults to `"BOTH"`)
+- Response shape:
+  - `{ quoteId?, orderUid?, buyAmount?, sellAmount?, fee?, validUntil?, provider?, ... }`
+- The returned `quoteId` is used with `SWAP_FROM_QUOTE` in `POST /v1.2/safes/operations`.
+
+### `swapFromQuote(safeAddress, quoteId, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `SWAP_FROM_QUOTE` operation.
+- Parameters:
+  - `safeAddress: string` (required)
+  - `quoteId: string` (required, obtained from `getSwapQuote`)
+  - `options?: { orderUid?, chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Typical flow:
+  1. `getSwapQuote(...)` → obtain `quoteId`
+  2. `swapFromQuote(safeAddress, quoteId)` → obtain WebAuthn challenge
+  3. Sign with `navigator.credentials.get()`
+  4. `executeSafeOperations({ credential })` → on-chain execution
+
 ## Session Lifecycle and Retry Behavior
 
 - SDK stores session tokens in configured storage.
@@ -458,6 +493,7 @@ The following API families are not wrapped by high-level SDK methods in `sdk/ibe
 - domain/admin/config endpoints
 - safe-provision routes (deploy, lazy-create)
 - batch operations (`batch-intent` / `batch-execute`)
+- automation module config (`PUT /v1.2/safes/{safeAddress}/automation-module/config`)
 
 ## Recommended Client Integration Order
 

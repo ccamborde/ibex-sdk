@@ -100,6 +100,7 @@ Must support:
 - address-book (SEPA + crypto)
 - balances/transactions/address resources
 - SEPA payments and mandates where required by task
+- swap quote retrieval (`GET /v1.2/safes/swap/quote`) and execution (`SWAP_FROM_QUOTE` via safe operations)
 - websocket event handling for real-time updates when task requires realtime behavior
 - chain capability gating using `/v1.2/chains/` for transfer/recovery/automation/multi-sig
 

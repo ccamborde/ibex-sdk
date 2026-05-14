@@ -53,6 +53,7 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
   - `SIGN_MESSAGE`: EIP-191 personal_sign. Body: `{ type: "SIGN_MESSAGE", message: "<string>" }`
   - `ENABLE_RECOVERY`: activate recovery module on a deployed Safe. Body: `{ type: "ENABLE_RECOVERY", firstName, lastName, birthDate (YYYY-MM-DD), birthCity, birthCountry }`
   - `CANCEL_RECOVERY`: disable previously enabled recovery. Body: `{ type: "CANCEL_RECOVERY" }`
+  - `SWAP_FROM_QUOTE`: execute a token swap from a pre-obtained quote. Body: `{ type: "SWAP_FROM_QUOTE", quoteId: "<string>", orderUid?: "<string>" }`
 - Required request fields for all safe operations:
   - `safeAddress` (string, required)
   - `operations` (array, required)
@@ -60,6 +61,15 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
   - `walletMode` (optional): `"SAFE_4337"` or `"EOA_7702"`
 - Safe must be deployed before `ENABLE_RECOVERY` (lazy/undeployed Safes will receive an error).
 - Safe must already have recovery enabled before `CANCEL_RECOVERY`.
+
+## Swap Quote (SDK Scope)
+
+- Get a DEX swap quote: `GET /v1.2/safes/swap/quote` with query params:
+  - `sellTokenAddress` (required), `buyTokenAddress` (required), `amount` (required, human-readable)
+  - `chainId` (optional), `safeAddress` (optional, defaults to user's first Safe), `provider` (optional: `COWSWAP`, `1INCH`, or `BOTH`)
+- Response includes `quoteId`, `buyAmount`, `sellAmount`, fee, validity, etc.
+- Use the returned `quoteId` with `SWAP_FROM_QUOTE` operation via `POST /v1.2/safes/operations`.
+- Full swap flow: `getSwapQuote()` → `swapFromQuote()` → WebAuthn sign → `executeSafeOperations()`.
 
 ## SEPA Payments and Mandates (SDK Scope)
 

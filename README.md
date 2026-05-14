@@ -78,6 +78,7 @@ Then build a complete web widget that demonstrates IBEx.Fi integration:
 - Display user profile (GET /users/me)
 - Update user data (POST /users/me)
 - JWT token refresh
+- Token swap (get quote from COWSWAP/1INCH, execute via Safe operations)
 - Local cache scoped by externalUserId
 - Real-time log of all API calls
 

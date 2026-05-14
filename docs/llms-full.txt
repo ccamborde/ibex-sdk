@@ -52,6 +52,7 @@ Example: `localhost` (for `http://localhost:PORT/`) or `demobaas-prat1.ibex.fi` 
 | Get mandate | GET | `/v1.2/sepa/mandates/:id` | Yes |
 | Update mandate status | PATCH | `/v1.2/sepa/mandates/:id/status` | Yes |
 | Cancel mandate | POST | `/v1.2/sepa/mandates/:id/cancel` | Yes |
+| Get swap quote | GET | `/v1.2/safes/swap/quote` | Yes |
 | Prepare safe operation(s) | POST | `/v1.2/safes/operations` | Yes |
 | Execute safe operation(s) | PUT | `/v1.2/safes/operations` | Yes |
 
@@ -353,6 +354,7 @@ Supported operation types exposed by SDK:
 | `SIGN_MESSAGE` | `message` | EIP-191 / personal_sign |
 | `ENABLE_RECOVERY` | `firstName`, `lastName`, `birthDate`, `birthCity`, `birthCountry` | Safe must be deployed; `birthDate` format `YYYY-MM-DD` |
 | `CANCEL_RECOVERY` | – | Safe must have recovery enabled |
+| `SWAP_FROM_QUOTE` | `quoteId` | Use quote from `GET /v1.2/safes/swap/quote`; optional `orderUid` |
 
 Optional top-level fields: `walletMode` (`"SAFE_4337"` | `"EOA_7702"`), `signerId`, `eoaKeySelection` (`{ family, index }`).
 
@@ -433,6 +435,37 @@ Response:
 }
 ```
 
+### GET /v1.2/safes/swap/quote (swap quote)
+
+Query parameters:
+
+- `sellTokenAddress` (required): EVM address of the token to sell
+- `buyTokenAddress` (required): EVM address of the token to buy
+- `amount` (required): human-readable sell amount (e.g. `"100"`)
+- `chainId` (optional): chain ID (defaults to environment)
+- `safeAddress` (optional): Safe address (defaults to user's first Safe)
+- `provider` (optional): `COWSWAP`, `1INCH`, or `BOTH` (default)
+
+Response includes `quoteId`, `orderUid`, `buyAmount`, `sellAmount`, fee, validity, and provider-specific data.
+
+### SWAP_FROM_QUOTE example
+
+```json
+{
+  "safeAddress": "0xSAFE...",
+  "chainId": 421614,
+  "operations": [
+    { "type": "SWAP_FROM_QUOTE", "quoteId": "q-17fe72b1b1d44f4db7f5" }
+  ]
+}
+```
+
+Full swap flow:
+1. `GET /v1.2/safes/swap/quote?sellTokenAddress=0x...&buyTokenAddress=0x...&amount=100` → obtain `quoteId`
+2. `POST /v1.2/safes/operations` with `SWAP_FROM_QUOTE` + `quoteId` → WebAuthn challenge
+3. Sign with `navigator.credentials.get()`
+4. `PUT /v1.2/safes/operations` with signed credential → on-chain execution
+
 ---
 
 ## SESSION MANAGEMENT
@@ -498,6 +531,7 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 | `GET /api/ibex/sepa/mandates/:id` | `GET /v1.2/sepa/mandates/:id` |
 | `PATCH /api/ibex/sepa/mandates/:id/status` | `PATCH /v1.2/sepa/mandates/:id/status` |
 | `POST /api/ibex/sepa/mandates/:id/cancel` | `POST /v1.2/sepa/mandates/:id/cancel` |
+| `GET /api/ibex/safes/swap/quote` | `GET /v1.2/safes/swap/quote` |
 | `POST /api/ibex/safes/operations` | `POST /v1.2/safes/operations` |
 | `PUT /api/ibex/safes/operations` | `PUT /v1.2/safes/operations` |
 
@@ -686,13 +720,20 @@ Implementation tip:
 - Payment history/status: `GET /v1.2/sepa/transactions` and `GET /v1.2/sepa/transactions/:id`.
 - Realtime status/balance signals: `fiat_transaction_update` and `fiat_balance_update`.
 
-### H) Safe operations (SIGN_MESSAGE, ENABLE_RECOVERY, CANCEL_RECOVERY)
+### H) Safe operations (SIGN_MESSAGE, ENABLE_RECOVERY, CANCEL_RECOVERY, SWAP_FROM_QUOTE)
 
 - 2-step flow: `POST /v1.2/safes/operations` (prepare — returns WebAuthn challenge) then `PUT /v1.2/safes/operations` (execute — submit signed credential).
 - `SIGN_MESSAGE`: EIP-191 personal_sign on behalf of the Safe.
 - `ENABLE_RECOVERY`: activates recovery module; Safe must be deployed first.
 - `CANCEL_RECOVERY`: disables previously enabled recovery module.
+- `SWAP_FROM_QUOTE`: execute a token swap using a `quoteId` obtained from `GET /v1.2/safes/swap/quote`.
 - Execution result includes `userOpHash` (and optionally `txHash` for EOA_7702 mode).
+
+### I) Swap quotes
+
+- Obtain a DEX swap quote: `GET /v1.2/safes/swap/quote` with `sellTokenAddress`, `buyTokenAddress`, `amount` (required) and optional `chainId`, `safeAddress`, `provider`.
+- Response includes `quoteId` to be used with `SWAP_FROM_QUOTE` operation.
+- Supports COWSWAP, 1INCH, or both providers.
 
 ---
 
@@ -756,5 +797,6 @@ Implementation tip:
 - [ ] Safe operations use 2-step flow: `POST /v1.2/safes/operations` (prepare) then `PUT /v1.2/safes/operations` (execute)
 - [ ] `ENABLE_RECOVERY` is only called on deployed Safes (not lazy/undeployed)
 - [ ] `CANCEL_RECOVERY` is only called when recovery is already enabled
+- [ ] Swap flow uses `getSwapQuote()` first, then `swapFromQuote()` with the returned `quoteId`
 - [ ] UI uses scoped local cache (`${externalUserId}_*`) and incremental refresh strategy
 - [ ] UI shows real-time event log of API interactions
