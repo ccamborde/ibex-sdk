@@ -1,8 +1,8 @@
-import type { IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexSdkConfig, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexUserLendingResponse, IbexUserPoolsResponse, IbexUserProfile, IbexUserResourceQuery, IbexUserSignersResponse, IbexUserTokensResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, JsonObject } from "./types";
-export declare const IBEX_TOKEN_KEY = "klarenfr_ibex_jwt";
-export declare const IBEX_REFRESH_TOKEN_KEY = "klarenfr_ibex_refresh_token";
-export declare const IBEX_EXTERNAL_USER_ID_KEY = "klarenfr_ibex_external_user_id";
-export declare const IBEX_SESSION_CHANGED_EVENT = "klarenfr_ibex_session_changed";
+import type { IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexSafeEnableRecoveryOperation, IbexSafeExecuteRequest, IbexSafeExecuteResponse, IbexSafeOperationsRequest, IbexSafePrepareResponse, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexSdkConfig, IbexSwapQuoteQuery, IbexSwapQuoteResponse, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexUserLendingResponse, IbexUserPoolsResponse, IbexUserProfile, IbexUserResourceQuery, IbexUserSignersResponse, IbexUserTokensResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, JsonObject } from "./types";
+export declare const IBEX_TOKEN_KEY = "ibex_jwt";
+export declare const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
+export declare const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
+export declare const IBEX_SESSION_CHANGED_EVENT = "ibex_session_changed";
 export declare class IbexSdk {
     private readonly apiBaseUrl;
     private readonly storage;
@@ -53,6 +53,30 @@ export declare class IbexSdk {
     getSepaMandateById(id: string): Promise<IbexSepaMandateDetailResponse>;
     updateSepaMandateStatus(id: string, payload: IbexSepaUpdateMandateStatusRequest): Promise<IbexSepaUpdateMandateStatusResponse>;
     cancelSepaMandate(id: string): Promise<IbexSepaCancelMandateResponse>;
+    prepareSafeOperations(request: IbexSafeOperationsRequest): Promise<IbexSafePrepareResponse>;
+    executeSafeOperations(request: IbexSafeExecuteRequest): Promise<IbexSafeExecuteResponse>;
+    signMessage(safeAddress: string, message: string, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    enableRecovery(safeAddress: string, identity: Omit<IbexSafeEnableRecoveryOperation, "type">, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    cancelRecovery(safeAddress: string, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    getSwapQuote(query: IbexSwapQuoteQuery): Promise<IbexSwapQuoteResponse>;
+    swapFromQuote(safeAddress: string, quoteId: string, options?: {
+        orderUid?: string;
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
     private jsonFetch;
     private jsonFetchWithMeta;
     private authenticatedJsonFetch;

@@ -1,9 +1,9 @@
 import { browserStorage } from "./storage";
 import { defaultResolveRpId, extractAuthTokens, extractExternalUserId, isAuthStatusError, normalizeSignInOptions, normalizeSignUpOptions, normalizeUsersMePayload, serializeAssertion, serializeAttestation, } from "./utils";
-export const IBEX_TOKEN_KEY = "klarenfr_ibex_jwt";
-export const IBEX_REFRESH_TOKEN_KEY = "klarenfr_ibex_refresh_token";
-export const IBEX_EXTERNAL_USER_ID_KEY = "klarenfr_ibex_external_user_id";
-export const IBEX_SESSION_CHANGED_EVENT = "klarenfr_ibex_session_changed";
+export const IBEX_TOKEN_KEY = "ibex_jwt";
+export const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
+export const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
+export const IBEX_SESSION_CHANGED_EVENT = "ibex_session_changed";
 export class IbexSdk {
     apiBaseUrl;
     storage;
@@ -236,6 +236,11 @@ export class IbexSdk {
         return payload;
     }
     async createMeAddressBookEntry(input) {
+        const hasIban = typeof input.iban === "string" && input.iban.trim().length > 0;
+        const hasRespondingPspBic = typeof input.respondingPspBic === "string" && input.respondingPspBic.trim().length > 0;
+        if (hasIban !== hasRespondingPspBic) {
+            throw new Error("When creating an address book entry, `iban` and `respondingPspBic` must be provided together.");
+        }
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, {
             method: "POST",
             body: input,
@@ -333,6 +338,56 @@ export class IbexSdk {
             method: "POST",
         }));
         return response;
+    }
+    // --- Safe Operations ---
+    async prepareSafeOperations(request) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/safes/operations", token, {
+            method: "POST",
+            body: request,
+        }));
+        return response;
+    }
+    async executeSafeOperations(request) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/safes/operations", token, {
+            method: "PUT",
+            body: request,
+        }));
+        return response;
+    }
+    async signMessage(safeAddress, message, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "SIGN_MESSAGE", message }],
+            ...options,
+        });
+    }
+    async enableRecovery(safeAddress, identity, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "ENABLE_RECOVERY", ...identity }],
+            ...options,
+        });
+    }
+    async cancelRecovery(safeAddress, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "CANCEL_RECOVERY" }],
+            ...options,
+        });
+    }
+    // --- Swap Quote ---
+    async getSwapQuote(query) {
+        const path = this.buildPathWithQuery("/v1.2/safes/swap/quote", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    async swapFromQuote(safeAddress, quoteId, options) {
+        const { orderUid, ...rest } = options || {};
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "SWAP_FROM_QUOTE", quoteId, ...(orderUid ? { orderUid } : {}) }],
+            ...rest,
+        });
     }
     async jsonFetch(path, options = {}) {
         const meta = await this.jsonFetchWithMeta(path, options);

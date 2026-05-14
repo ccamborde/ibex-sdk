@@ -60,10 +60,10 @@ import {
   serializeAttestation,
 } from "./utils";
 
-export const IBEX_TOKEN_KEY = "klarenfr_ibex_jwt";
-export const IBEX_REFRESH_TOKEN_KEY = "klarenfr_ibex_refresh_token";
-export const IBEX_EXTERNAL_USER_ID_KEY = "klarenfr_ibex_external_user_id";
-export const IBEX_SESSION_CHANGED_EVENT = "klarenfr_ibex_session_changed";
+export const IBEX_TOKEN_KEY = "ibex_jwt";
+export const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
+export const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
+export const IBEX_SESSION_CHANGED_EVENT = "ibex_session_changed";
 
 type JsonRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
