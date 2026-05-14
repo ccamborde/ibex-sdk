@@ -17,6 +17,7 @@ The SDK currently integrates:
   - monitored tokens
   - pools
   - lending
+- Chain capability discovery
 - Safe operations (prepare + execute two-step flow):
   - sign message (EIP-191)
   - enable recovery
@@ -93,6 +94,7 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `addMeAddressBookCrypto(id, input)` | `POST` | `/v1.2/users/me/addressbook/:id/crypto` |
 | `deleteMeAddressBookCrypto(id, chainId, address)` | `DELETE` | `/v1.2/users/me/addressbook/:id/crypto/:chainId/:address` |
 | `deleteMeAddressBookIban(id, iban)` | `DELETE` | `/v1.2/users/me/addressbook/:id/ibans/:iban` |
+| `getChains()` | `GET` | `/v1.2/chains/` |
 | `addSepaIban(payload)` | `POST` | `/v1.2/sepa/iban/add` |
 | `getSepaIbans()` | `GET` | `/v1.2/sepa/iban` |
 | `createSepaPaymentIntent(payload)` | `POST` | `/v1.2/sepa/payments` |
@@ -282,7 +284,20 @@ Expected SDK result:
 - SDK behavior:
   - URL-encodes `iban` path param.
 
-### 4) SEPA Endpoints
+### 4) Chain Capability Discovery
+
+### `getChains()`
+
+- Endpoint: `GET /v1.2/chains/`
+- Purpose: return active chains and their enabled modules. Used to gate features (transfer, recovery, automation, multi-sig, cowswap) per chain before enabling them in UI.
+- Response shape:
+  - `Array<{ id: number, name?: string, modules?: { billing?, cowswap?, recovery?, automation? } }>`
+- Usage:
+  - Resolve user chain context from `getMe()` (`chainid.defaultChainId`, `chainid.chains[].chainId`)
+  - Join with `getChains()` entries by `id` to get chain `name` and `modules`
+  - If a user has a wallet on a chain but a module is `false` in `getChains()`, the feature must stay hidden/disabled for that chain
+
+### 5) SEPA Endpoints
 
 ### `addSepaIban(payload)`
 
@@ -385,7 +400,7 @@ Expected SDK result:
   - URL-encodes `id` path param.
 - Purpose: convenience cancellation endpoint for mandate termination.
 
-### 5) Safe Operations
+### 6) Safe Operations
 
 All Safe operations follow a two-step flow: **prepare** (POST) returns a WebAuthn challenge, then **execute** (PUT) submits the signed credential.
 
@@ -441,7 +456,7 @@ All Safe operations follow a two-step flow: **prepare** (POST) returns a WebAuth
 - Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
 - Note: Safe must already have recovery enabled.
 
-### 6) Swap Quote
+### 7) Swap Quote
 
 ### `getSwapQuote(query)`
 

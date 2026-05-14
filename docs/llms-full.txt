@@ -52,6 +52,7 @@ Example: `localhost` (for `http://localhost:PORT/`) or `demobaas-prat1.ibex.fi` 
 | Get mandate | GET | `/v1.2/sepa/mandates/:id` | Yes |
 | Update mandate status | PATCH | `/v1.2/sepa/mandates/:id/status` | Yes |
 | Cancel mandate | POST | `/v1.2/sepa/mandates/:id/cancel` | Yes |
+| List chains | GET | `/v1.2/chains/` | Yes |
 | Get swap quote | GET | `/v1.2/safes/swap/quote` | Yes |
 | Prepare safe operation(s) | POST | `/v1.2/safes/operations` | Yes |
 | Execute safe operation(s) | PUT | `/v1.2/safes/operations` | Yes |
@@ -531,6 +532,7 @@ in the preflight response). Any implementation MUST include a server-side proxy:
 | `GET /api/ibex/sepa/mandates/:id` | `GET /v1.2/sepa/mandates/:id` |
 | `PATCH /api/ibex/sepa/mandates/:id/status` | `PATCH /v1.2/sepa/mandates/:id/status` |
 | `POST /api/ibex/sepa/mandates/:id/cancel` | `POST /v1.2/sepa/mandates/:id/cancel` |
+| `GET /api/ibex/chains` | `GET /v1.2/chains/` |
 | `GET /api/ibex/safes/swap/quote` | `GET /v1.2/safes/swap/quote` |
 | `POST /api/ibex/safes/operations` | `POST /v1.2/safes/operations` |
 | `PUT /api/ibex/safes/operations` | `PUT /v1.2/safes/operations` |
@@ -616,17 +618,19 @@ If the implementation includes realtime behavior, add an authenticated WS client
 
 ## CHAIN CAPABILITY DISCOVERY
 
-Use `GET /v1.2/chains/` to build feature availability by chain before enabling actions in UI.
+SDK method: `getChains()` → `GET /v1.2/chains/` (JWT-protected).
+
+Returns an array of `{ id, name, modules: { billing, cowswap, recovery, automation } }`.
 
 - A user may have wallets on chains where certain services are unavailable.
 - Do not infer service availability from wallet presence alone.
-- Resolve chain context from `/v1.2/users/me`:
+- Resolve chain context from `getMe()` / `/v1.2/users/me`:
   - `chainid.defaultChainId`
   - `chainid.chains[].chainId` and associated wallets
-- Then join each user chain id with `/v1.2/chains/` entries (`id`) to get:
+- Then join each user chain id with `getChains()` / `/v1.2/chains/` entries (`id`) to get:
   - chain name (`name`)
   - module availability (`modules`)
-- Gate actions by chain capabilities from `/v1.2/chains/`, especially:
+- Gate actions by chain capabilities from `getChains()`, especially:
   - transfer
   - recovery
   - automation
@@ -793,7 +797,7 @@ Implementation tip:
 - [ ] WS close-code handling includes 4001/4002/4003 specific behavior
 - [ ] Only one WS session per `(externalUserId, rpId)` is active at a time
 - [ ] Initial WS burst is handled idempotently (duplicate `user_data` tolerated)
-- [ ] `GET /v1.2/chains/` is used to gate transfer/recovery/automation/multi-sig per chain
+- [ ] `getChains()` (`GET /v1.2/chains/`) is used to gate transfer/recovery/automation/multi-sig per chain
 - [ ] Safe operations use 2-step flow: `POST /v1.2/safes/operations` (prepare) then `PUT /v1.2/safes/operations` (execute)
 - [ ] `ENABLE_RECOVERY` is only called on deployed Safes (not lazy/undeployed)
 - [ ] `CANCEL_RECOVERY` is only called when recovery is already enabled

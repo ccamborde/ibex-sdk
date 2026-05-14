@@ -183,17 +183,18 @@ If any link in this chain differs → 401 Unauthorized.
   - Payment history/status: `GET /v1.2/sepa/transactions` and `GET /v1.2/sepa/transactions/:id`.
   - Realtime status/balance signals: `fiat_transaction_update` and `fiat_balance_update`.
 
-## Chain Capability Gating
+## Chain Capability Gating (SDK Scope)
 
-- Query `/v1.2/chains/` and gate features per chain capability.
+- SDK method: `getChains()` → `GET /v1.2/chains/` (JWT-protected).
+- Returns: `Array<{ id, name, modules: { billing, cowswap, recovery, automation } }>`.
 - Do not assume a wallet on a chain implies feature availability on that chain.
-- Read user chain context from `/v1.2/users/me` first, especially:
+- Read user chain context from `getMe()` first, especially:
   - `chainid.defaultChainId`
   - `chainid.chains[].chainId` + attached wallets
-- Join `users/me` chain ids with `/v1.2/chains/` by `id` to retrieve:
+- Join `getMe()` chain ids with `getChains()` by `id` to retrieve:
   - chain display name (e.g. `"Gnosis"`)
   - available modules (e.g. `billing`, `cowswap`, `recovery`, `automation`)
-- Use `/v1.2/chains/` to decide whether to show/enable:
+- Use `getChains()` to decide whether to show/enable:
   - transfers,
   - recovery,
   - automation,

@@ -30,6 +30,7 @@ import type {
   IbexSepaTransactionsResponse,
   IbexSepaUpdateMandateStatusRequest,
   IbexSepaUpdateMandateStatusResponse,
+  IbexChainsResponse,
   IbexSdkConfig,
   IbexSdkStorage,
   IbexSwapQuoteQuery,
@@ -329,6 +330,17 @@ export class IbexSdk {
     );
     return payload as IbexUserLendingResponse;
   }
+
+  // --- Chains ---
+
+  async getChains(): Promise<IbexChainsResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/chains/", token, { method: "GET" }),
+    );
+    return (Array.isArray(payload) ? payload : []) as IbexChainsResponse;
+  }
+
+  // --- Address Book ---
 
   async getMeAddressBook(): Promise<IbexAddressBookListResponse> {
     const payload = await this.withRefreshOnUnauthorized(async (token) =>

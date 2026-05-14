@@ -565,6 +565,23 @@ export type IbexSafeExecuteResponse = {
   success?: boolean;
 } & JsonObject;
 
+// --- Chains ---
+
+export type IbexChainModules = {
+  billing?: boolean;
+  cowswap?: boolean;
+  recovery?: boolean;
+  automation?: boolean;
+} & JsonObject;
+
+export type IbexChain = {
+  id: number;
+  name?: string;
+  modules?: IbexChainModules;
+} & JsonObject;
+
+export type IbexChainsResponse = IbexChain[];
+
 // --- Swap Quote ---
 
 export type IbexSwapQuoteProvider = "COWSWAP" | "1INCH" | "BOTH";
