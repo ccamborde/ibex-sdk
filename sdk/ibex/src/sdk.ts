@@ -32,6 +32,8 @@ import type {
   IbexSepaUpdateMandateStatusResponse,
   IbexSdkConfig,
   IbexSdkStorage,
+  IbexSwapQuoteQuery,
+  IbexSwapQuoteResponse,
   IbexTokens,
   IbexTransactionsQuery,
   IbexUserAddressResponse,
@@ -557,6 +559,29 @@ export class IbexSdk {
       safeAddress,
       operations: [{ type: "CANCEL_RECOVERY" }],
       ...options,
+    });
+  }
+
+  // --- Swap Quote ---
+
+  async getSwapQuote(query: IbexSwapQuoteQuery): Promise<IbexSwapQuoteResponse> {
+    const path = this.buildPathWithQuery("/v1.2/safes/swap/quote", query as unknown as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexSwapQuoteResponse;
+  }
+
+  async swapFromQuote(
+    safeAddress: string,
+    quoteId: string,
+    options?: { orderUid?: string; chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    const { orderUid, ...rest } = options || {};
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "SWAP_FROM_QUOTE", quoteId, ...(orderUid ? { orderUid } : {}) }],
+      ...rest,
     });
   }
 

@@ -509,10 +509,17 @@ export type IbexSafeCancelRecoveryOperation = {
   type: "CANCEL_RECOVERY";
 };
 
+export type IbexSwapFromQuoteOperation = {
+  type: "SWAP_FROM_QUOTE";
+  quoteId: string;
+  orderUid?: string;
+};
+
 export type IbexSafeOperation =
   | IbexSafeSignMessageOperation
   | IbexSafeEnableRecoveryOperation
   | IbexSafeCancelRecoveryOperation
+  | IbexSwapFromQuoteOperation
   | (JsonObject & { type: string });
 
 export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";
@@ -556,4 +563,27 @@ export type IbexSafeExecuteResponse = {
   txHash?: string;
   walletMode?: string;
   success?: boolean;
+} & JsonObject;
+
+// --- Swap Quote ---
+
+export type IbexSwapQuoteProvider = "COWSWAP" | "1INCH" | "BOTH";
+
+export type IbexSwapQuoteQuery = {
+  sellTokenAddress: string;
+  buyTokenAddress: string;
+  amount: string;
+  chainId?: number;
+  safeAddress?: string;
+  provider?: IbexSwapQuoteProvider;
+};
+
+export type IbexSwapQuoteResponse = {
+  quoteId?: string;
+  orderUid?: string;
+  buyAmount?: string;
+  sellAmount?: string;
+  fee?: string;
+  validUntil?: string;
+  provider?: string;
 } & JsonObject;
