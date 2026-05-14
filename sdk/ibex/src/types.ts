@@ -35,6 +35,56 @@ export type IbexUserProfile = {
   userdata?: JsonObject;
 } & JsonObject;
 
+// --- Normalized Profile (SDK output for GET /users/me) ---
+
+export type IbexEoaAddress = {
+  type: string;
+  address: string;
+};
+
+export type IbexWalletInfo = {
+  safeAddress: string;
+  chainIds: number[];
+  threshold?: number;
+  primary?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  eoaAddresses: IbexEoaAddress[];
+} & JsonObject;
+
+export type IbexSigner = {
+  id?: string;
+  type?: string;
+  typeDescription?: string;
+  walletMode?: string;
+  keyName?: string;
+  keyDisplayName?: string;
+  createdAt?: string;
+  safesCount?: number;
+} & JsonObject;
+
+export type IbexKycStatus = {
+  externalUserId?: string;
+  kycLevel?: string;
+  status?: string;
+  verified?: boolean;
+} & JsonObject;
+
+export type IbexNormalizedProfile = {
+  externalUserId?: string;
+  rpId?: string;
+  signerId?: string;
+  wallets: IbexWalletInfo[];
+  signers: IbexSigner[];
+  ibans: JsonObject[];
+  balances?: IbexNormalizedBalances;
+  transactions?: IbexNormalizedTransactions;
+  kycStatus?: IbexKycStatus;
+  addressbook: JsonObject[];
+  data?: JsonObject;
+  errors?: Record<string, JsonObject>;
+};
+
 export type IbexHttpMeta = {
   payload: JsonObject;
   status: number;
@@ -157,6 +207,8 @@ export type IbexAddAddressBookCryptoInput = {
 export type IbexBalanceToken = {
   tokenAddress?: string;
   primaryAddress?: string;
+  secondaryAddress?: string | null;
+  active?: boolean;
   symbol?: string;
   name?: string;
   decimals?: number;
@@ -170,6 +222,8 @@ export type IbexBalanceToken = {
   price_eur?: number;
   value_usd?: string;
   value_eur?: string;
+  price_updated_at?: string;
+  price_source?: string;
 } & JsonObject;
 
 export type IbexBalancesBucket = {
@@ -178,27 +232,98 @@ export type IbexBalancesBucket = {
   summary?: JsonObject;
 } & JsonObject;
 
-export type IbexUserBalancesResponse = {
-  type?: string;
-  identifier?: string;
-  timestamp?: string;
-  blockchainId?: string | number;
-  prices_available?: boolean;
-  balance?: IbexBalancesBucket;
-  crypto?: JsonObject;
-  fiat?: JsonObject;
-  totals?: JsonObject;
+/**
+ * Aggregated mode: `crypto` is keyed by chainId, then by walletAddress.
+ * Example: `crypto["421614"]["0xABC..."].tokens[]`
+ */
+export type IbexBalancesAggregatedCrypto = Record<string, Record<string, IbexBalancesBucket>>;
+
+export type IbexBalancesAggregatedFiat = Record<string, Record<string, IbexBalancesBucket>>;
+
+export type IbexBalancesTotals = {
+  crypto_total_value_eur?: string;
+  fiat_total_value_eur?: string;
+  grand_total_value_eur?: string;
+  crypto_total_value_usd?: string;
+  fiat_total_value_usd?: string;
+  grand_total_value_usd?: string;
+  conversion_rate_eur_usd?: number;
 } & JsonObject;
 
+export type IbexUserBalancesResponse = {
+  timestamp?: string;
+  prices_available?: boolean;
+
+  /** Scoped mode (single chain / single wallet / single IBAN) */
+  type?: string;
+  identifier?: string;
+  blockchainId?: string | number;
+  balance?: IbexBalancesBucket;
+
+  /** Aggregated mode (all chains, no blockchainId filter) */
+  crypto?: IbexBalancesAggregatedCrypto;
+  fiat?: IbexBalancesAggregatedFiat;
+  totals?: IbexBalancesTotals;
+} & JsonObject;
+
+// --- Normalized Balances (SDK output) ---
+
+export type IbexWalletBalance = {
+  chainId: string;
+  walletAddress: string;
+  tokens: IbexBalanceToken[];
+  pending: JsonObject[];
+};
+
+export type IbexNormalizedBalances = {
+  timestamp?: string;
+  prices_available?: boolean;
+  wallets: IbexWalletBalance[];
+  totals?: IbexBalancesTotals;
+};
+
 export type IbexTransaction = {
+  id?: number;
+  blockNumber?: number;
   transactionHash?: string;
   hash?: string;
-  valueFormatted?: string;
   timestamp?: string | number;
+  from?: string;
+  to?: string;
+  tokenAddress?: string;
+  primaryAddress?: string;
+  secondaryAddress?: string | null;
+  tokenType?: string;
+  tokenId?: string | null;
+  tokenSymbol?: string;
+  value?: string;
+  valueFormatted?: number | string;
+  direction?: string;
+  watchedAddress?: string;
+  blockchainId?: string | number;
+  active?: boolean;
+  balance?: number | string;
+  price_usd?: number;
+  price_eur?: number;
+  value_usd?: string;
+  value_eur?: string;
+  price_updated_at?: string;
+  price_source?: string;
+  createdAt?: string;
+  updatedAt?: string;
 } & JsonObject;
+
+export type IbexTransactionPage = {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  data: IbexTransaction[];
+};
 
 export type IbexUserTransactionsResponse = {
   type?: string;
+  timestamp?: string;
   identifier?: string;
   blockchainId?: string | number;
   total?: number;
@@ -206,7 +331,40 @@ export type IbexUserTransactionsResponse = {
   limit?: number;
   totalPages?: number;
   data?: IbexTransaction[];
+  crypto?: {
+    timestamp?: string;
+    transactions?: Record<string, IbexTransactionPage>;
+    prices_available?: boolean;
+  } & JsonObject;
+  fiat?: JsonObject;
 } & JsonObject;
+
+// --- Normalized Transactions (SDK output) ---
+
+export type IbexChainTransactions = {
+  chainId: string;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  transactions: IbexTransaction[];
+};
+
+export type IbexFiatTransactions = {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  transactions: JsonObject[];
+};
+
+export type IbexNormalizedTransactions = {
+  type?: string;
+  timestamp?: string;
+  prices_available?: boolean;
+  chains: IbexChainTransactions[];
+  fiat?: IbexFiatTransactions;
+};
 
 export type IbexUserAddressResponse = {
   type?: string;

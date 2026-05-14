@@ -159,22 +159,29 @@ If any link in this chain differs → 401 Unauthorized.
 
 ## Data Paths Quick Tips
 
+- **User Profile (aggregator)**:
+  - `getMe()` returns `IbexNormalizedProfile` — a stable, typed structure with all sections normalized:
+    - `wallets[]` (with `safeAddress`, `chainIds`, `eoaAddresses[]`), `signers[]`, `ibans[]`, `balances` (normalized), `transactions` (normalized), `kycStatus`, `addressbook[]`, `data`
+  - `getMeRaw()` returns the raw API response
 - IBANs:
-  - HTTP: `users/me -> ibans.ibans[]`
+  - HTTP: `getMe() -> ibans[]` (normalized) or raw `users/me -> ibans.ibans[]`
   - WS: `user_data -> data.ibans.data.ibans[]` + signal `user_iban_updated`
 - Wallets:
-  - HTTP: `users/me -> addresses.wallets[]`
+  - HTTP: `getMe() -> wallets[]` (normalized, includes `eoaAddresses`) or raw `users/me -> addresses.wallets[]`
   - WS: `user_data -> data.addresses.data.wallets[]` (`auth_success.data.safeAddress` is only session safe)
 - Address book:
-  - HTTP: `users/me -> addressbook.data[]`
+  - HTTP: `getMe() -> addressbook[]` (normalized) or raw `users/me -> addressbook.data[]`
   - WS snapshot: `user_data -> data.addressbook.data.data[]` (envelope mode)
 - Balances:
   - HTTP: `getMeBalances()` → `GET /v1.2/users/me/balances`
-    - no `blockchainId`: aggregated across all chains (`crypto`, `fiat`, `totals`)
-    - with `blockchainId`: scoped to one chain (`balance.tokens[]`)
+    - SDK normalizes API response into a flat structure: `{ wallets: [{ chainId, walletAddress, tokens[], pending[] }], totals? }`
+    - Works the same whether API returns aggregated (all chains) or scoped (single chain) format
+    - Use `getMeBalancesRaw()` for the raw API response if needed
   - WS: `balance_data`, `balance_update`, `fiat_balance_update`
 - Transactions:
-  - HTTP: `users/me -> transactions`
+  - HTTP: `users/me -> transactions` (SDK normalizes into `{ chains: [{ chainId, transactions: [...] }], fiat?: {...} }`)
+    - `getMeTransactions()` returns `IbexNormalizedTransactions` — flat `chains[]` array with pagination per chain
+    - `getMeTransactionsRaw()` returns the raw API response
   - WS: `transaction_data`, `new_transaction`, `fiat_transaction_update`
 - CRYPTO transfers:
   - Create transfer intent/execution through Safe operations (`POST/PUT /v1.2/safes/operations`) with transfer operation types.

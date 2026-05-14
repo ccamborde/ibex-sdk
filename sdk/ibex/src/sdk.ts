@@ -31,6 +31,9 @@ import type {
   IbexSepaUpdateMandateStatusRequest,
   IbexSepaUpdateMandateStatusResponse,
   IbexChainsResponse,
+  IbexNormalizedBalances,
+  IbexNormalizedProfile,
+  IbexNormalizedTransactions,
   IbexSdkConfig,
   IbexSdkStorage,
   IbexSwapQuoteQuery,
@@ -54,6 +57,9 @@ import {
   extractAuthTokens,
   extractExternalUserId,
   isAuthStatusError,
+  normalizeBalancesResponse,
+  normalizeTransactionsResponse,
+  normalizeUserProfileResponse,
   normalizeSignInOptions,
   normalizeSignUpOptions,
   normalizeUsersMePayload,
@@ -245,7 +251,14 @@ export class IbexSdk {
     }
   }
 
-  async getMe(): Promise<IbexUserProfile> {
+  async getMe(): Promise<IbexNormalizedProfile> {
+    const raw = await this.getMeRaw();
+    const normalized = normalizeUserProfileResponse(raw as JsonObject);
+    if (normalized.externalUserId) this.storage.set(this.keyExternalUserId, normalized.externalUserId);
+    return normalized;
+  }
+
+  async getMeRaw(): Promise<IbexUserProfile> {
     const profile = await this.withRefreshOnUnauthorized(async (token) =>
       this.authenticatedJsonFetch("/v1.2/users/me", token, {
         method: "GET",
@@ -278,7 +291,12 @@ export class IbexSdk {
     return this.updateMeData({ [alertKey]: null });
   }
 
-  async getMeBalances(query: IbexBalancesQuery = {}): Promise<IbexUserBalancesResponse> {
+  async getMeBalances(query: IbexBalancesQuery = {}): Promise<IbexNormalizedBalances> {
+    const raw = await this.getMeBalancesRaw(query);
+    return normalizeBalancesResponse(raw);
+  }
+
+  async getMeBalancesRaw(query: IbexBalancesQuery = {}): Promise<IbexUserBalancesResponse> {
     const path = this.buildPathWithQuery("/v1.2/users/me/balances", query as JsonObject);
     const payload = await this.withRefreshOnUnauthorized(async (token) =>
       this.authenticatedJsonFetch(path, token, { method: "GET" }),
@@ -286,7 +304,12 @@ export class IbexSdk {
     return payload as IbexUserBalancesResponse;
   }
 
-  async getMeTransactions(query: IbexTransactionsQuery = {}): Promise<IbexUserTransactionsResponse> {
+  async getMeTransactions(query: IbexTransactionsQuery = {}): Promise<IbexNormalizedTransactions> {
+    const raw = await this.getMeTransactionsRaw(query);
+    return normalizeTransactionsResponse(raw);
+  }
+
+  async getMeTransactionsRaw(query: IbexTransactionsQuery = {}): Promise<IbexUserTransactionsResponse> {
     const path = this.buildPathWithQuery("/v1.2/users/me/transactions", query as JsonObject);
     const payload = await this.withRefreshOnUnauthorized(async (token) =>
       this.authenticatedJsonFetch(path, token, { method: "GET" }),

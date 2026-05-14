@@ -1,4 +1,24 @@
-import type { IbexTokens, IbexUserProfile, JsonObject } from "./types";
+import type {
+  IbexBalancesBucket,
+  IbexBalancesTotals,
+  IbexBalanceToken,
+  IbexChainTransactions,
+  IbexEoaAddress,
+  IbexKycStatus,
+  IbexNormalizedBalances,
+  IbexNormalizedProfile,
+  IbexNormalizedTransactions,
+  IbexSigner,
+  IbexTokens,
+  IbexTransaction,
+  IbexTransactionPage,
+  IbexUserBalancesResponse,
+  IbexUserProfile,
+  IbexUserTransactionsResponse,
+  IbexWalletBalance,
+  IbexWalletInfo,
+  JsonObject,
+} from "./types";
 
 export function defaultResolveRpId(hostname: string = window.location.hostname): string {
   const host = hostname.toLowerCase().trim();
@@ -213,4 +233,229 @@ export function normalizeUsersMePayload(payload: unknown): IbexUserProfile {
 export function extractExternalUserId(profile: IbexUserProfile): string | null {
   const candidate = profile.externalUserId || profile.subject || profile.sub || profile.id;
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function extractBucketTokens(bucket: unknown): IbexBalanceToken[] {
+  if (!bucket || typeof bucket !== "object") return [];
+  const b = bucket as IbexBalancesBucket;
+  return Array.isArray(b.tokens) ? b.tokens : [];
+}
+
+function extractBucketPending(bucket: unknown): JsonObject[] {
+  if (!bucket || typeof bucket !== "object") return [];
+  const b = bucket as IbexBalancesBucket;
+  return Array.isArray(b.pending) ? b.pending : [];
+}
+
+function flattenNestedBuckets(nested: unknown): IbexWalletBalance[] {
+  if (!nested || typeof nested !== "object") return [];
+  const wallets: IbexWalletBalance[] = [];
+  for (const [chainId, walletsMap] of Object.entries(nested as Record<string, unknown>)) {
+    if (!walletsMap || typeof walletsMap !== "object") continue;
+    for (const [walletAddress, bucket] of Object.entries(walletsMap as Record<string, unknown>)) {
+      wallets.push({
+        chainId,
+        walletAddress,
+        tokens: extractBucketTokens(bucket),
+        pending: extractBucketPending(bucket),
+      });
+    }
+  }
+  return wallets;
+}
+
+export function normalizeBalancesResponse(raw: IbexUserBalancesResponse): IbexNormalizedBalances {
+  const result: IbexNormalizedBalances = {
+    timestamp: raw.timestamp,
+    prices_available: raw.prices_available,
+    wallets: [],
+    totals: raw.totals as IbexBalancesTotals | undefined,
+  };
+
+  if (raw.crypto) {
+    result.wallets.push(...flattenNestedBuckets(raw.crypto));
+  }
+
+  if (raw.fiat) {
+    result.wallets.push(...flattenNestedBuckets(raw.fiat));
+  }
+
+  if (raw.balance) {
+    result.wallets.push({
+      chainId: String(raw.blockchainId ?? ""),
+      walletAddress: raw.identifier ?? "",
+      tokens: extractBucketTokens(raw.balance),
+      pending: extractBucketPending(raw.balance),
+    });
+  }
+
+  return result;
+}
+
+export function normalizeTransactionsResponse(raw: IbexUserTransactionsResponse): IbexNormalizedTransactions {
+  const result: IbexNormalizedTransactions = {
+    type: raw.type,
+    timestamp: raw.timestamp,
+    chains: [],
+  };
+
+  if (raw.crypto && typeof raw.crypto === "object") {
+    result.prices_available = raw.crypto.prices_available;
+
+    const txMap = raw.crypto.transactions;
+    const chainsArr = (raw.crypto as JsonObject).chains;
+
+    if (txMap && typeof txMap === "object") {
+      // Standalone /users/me/transactions format: crypto.transactions[chainId].data[]
+      for (const [chainId, page] of Object.entries(txMap as Record<string, unknown>)) {
+        if (!page || typeof page !== "object") continue;
+        const p = page as IbexTransactionPage;
+        result.chains.push({
+          chainId,
+          total: p.total ?? 0,
+          page: p.page ?? 1,
+          limit: p.limit ?? 50,
+          totalPages: p.totalPages ?? 0,
+          transactions: Array.isArray(p.data) ? (p.data as IbexTransaction[]) : [],
+        });
+      }
+    } else if (Array.isArray(chainsArr)) {
+      // Aggregator /users/me format: crypto.chains[].wallets[].data[]
+      for (const chainEntry of chainsArr) {
+        if (!chainEntry || typeof chainEntry !== "object") continue;
+        const ce = chainEntry as Record<string, unknown>;
+        const chainId = String(ce.blockchainId ?? "");
+        const wallets = Array.isArray(ce.wallets) ? ce.wallets : [];
+        const allTx: IbexTransaction[] = [];
+        for (const w of wallets) {
+          if (w && typeof w === "object" && Array.isArray((w as Record<string, unknown>).data)) {
+            allTx.push(...((w as Record<string, unknown>).data as IbexTransaction[]));
+          }
+        }
+        result.chains.push({
+          chainId,
+          total: (ce.total as number) ?? allTx.length,
+          page: 1,
+          limit: 50,
+          totalPages: 1,
+          transactions: allTx,
+        });
+      }
+    } else if (Array.isArray((raw.crypto as JsonObject).data)) {
+      // Aggregator flat crypto: crypto.blockchainId + crypto.data[]
+      const c = raw.crypto as Record<string, unknown>;
+      result.chains.push({
+        chainId: String(c.blockchainId ?? ""),
+        total: (c.total as number) ?? 0,
+        page: (c.page as number) ?? 1,
+        limit: (c.limit as number) ?? 50,
+        totalPages: (c.totalPages as number) ?? 1,
+        transactions: (c.data as IbexTransaction[]) ?? [],
+      });
+    }
+  }
+
+  if (raw.fiat && typeof raw.fiat === "object") {
+    const f = raw.fiat as Record<string, unknown>;
+    result.fiat = {
+      total: (f.total as number) ?? 0,
+      page: (f.page as number) ?? 1,
+      limit: (f.limit as number) ?? 50,
+      totalPages: (f.totalPages as number) ?? 0,
+      transactions: Array.isArray(f.data) ? (f.data as JsonObject[]) : [],
+    };
+  }
+
+  if (!raw.crypto && !raw.fiat && Array.isArray(raw.data)) {
+    result.chains.push({
+      chainId: String(raw.blockchainId ?? ""),
+      total: raw.total ?? raw.data.length,
+      page: raw.page ?? 1,
+      limit: raw.limit ?? 50,
+      totalPages: raw.totalPages ?? 1,
+      transactions: raw.data,
+    });
+  }
+
+  return result;
+}
+
+function extractWallets(addresses: unknown): IbexWalletInfo[] {
+  if (!addresses || typeof addresses !== "object") return [];
+  const a = addresses as Record<string, unknown>;
+  const raw = Array.isArray(a.wallets) ? a.wallets : [];
+  return raw.map((w: unknown) => {
+    if (!w || typeof w !== "object") return { safeAddress: "", chainIds: [], eoaAddresses: [] } as IbexWalletInfo;
+    const wallet = w as Record<string, unknown>;
+    const eoaAddresses: IbexEoaAddress[] = [];
+    const derived = wallet.derived as Record<string, unknown> | undefined;
+    if (derived?.global && typeof derived.global === "object") {
+      const g = derived.global as Record<string, unknown>;
+      if (Array.isArray(g.eoaAddresses)) {
+        for (const eoa of g.eoaAddresses) {
+          if (eoa && typeof eoa === "object") {
+            const e = eoa as Record<string, unknown>;
+            eoaAddresses.push({ type: String(e.type ?? ""), address: String(e.address ?? "") });
+          }
+        }
+      }
+    }
+    return {
+      ...(w as JsonObject),
+      safeAddress: String(wallet.safeAddress ?? ""),
+      chainIds: Array.isArray(wallet.chainIds) ? (wallet.chainIds as number[]) : [],
+      threshold: wallet.threshold as number | undefined,
+      primary: wallet.primary as boolean | undefined,
+      createdAt: wallet.createdAt as string | undefined,
+      updatedAt: wallet.updatedAt as string | undefined,
+      eoaAddresses,
+    } as IbexWalletInfo;
+  });
+}
+
+function extractSigners(signers: unknown): IbexSigner[] {
+  if (!signers || typeof signers !== "object") return [];
+  const s = signers as Record<string, unknown>;
+  const arr = Array.isArray(s.signers) ? s.signers : [];
+  return arr.filter((x): x is IbexSigner => !!x && typeof x === "object");
+}
+
+export function normalizeUserProfileResponse(payload: JsonObject): IbexNormalizedProfile {
+  const addresses = payload.addresses as Record<string, unknown> | undefined;
+
+  const result: IbexNormalizedProfile = {
+    externalUserId: (addresses?.externalUserId ?? payload.externalUserId) as string | undefined,
+    rpId: addresses?.rpId as string | undefined,
+    signerId: addresses?.signerId as string | undefined,
+    wallets: extractWallets(addresses),
+    signers: extractSigners(payload.signers),
+    ibans: [],
+    balances: undefined,
+    transactions: undefined,
+    kycStatus: (payload.kycStatus ?? undefined) as IbexKycStatus | undefined,
+    addressbook: [],
+    data: (payload.data ?? payload.userdata) as JsonObject | undefined,
+    errors: payload.errors as Record<string, JsonObject> | undefined,
+  };
+
+  if (payload.ibans && typeof payload.ibans === "object") {
+    const ib = payload.ibans as Record<string, unknown>;
+    result.ibans = Array.isArray(ib.ibans) ? (ib.ibans as JsonObject[]) : [];
+  }
+
+  if (payload.balances && typeof payload.balances === "object") {
+    result.balances = normalizeBalancesResponse(payload.balances as IbexUserBalancesResponse);
+  }
+
+  if (payload.transactions && typeof payload.transactions === "object") {
+    result.transactions = normalizeTransactionsResponse(payload.transactions as IbexUserTransactionsResponse);
+  }
+
+  if (payload.addressbook && typeof payload.addressbook === "object") {
+    const ab = payload.addressbook as Record<string, unknown>;
+    result.addressbook = Array.isArray(ab.data) ? (ab.data as JsonObject[])
+      : Array.isArray(ab.entries) ? (ab.entries as JsonObject[]) : [];
+  }
+
+  return result;
 }

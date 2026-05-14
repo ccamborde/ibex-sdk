@@ -8,10 +8,10 @@ The SDK currently integrates:
 
 - Passkey authentication (sign-in with sign-up fallback)
 - Session refresh
-- User profile read/write
+- User profile read/write (**normalized**: `getMe()` returns a flat, typed `IbexNormalizedProfile`)
 - User wallet and portfolio resources:
-  - balances
-  - transactions
+  - balances (**normalized**: `getMeBalances()` returns flat `IbexNormalizedBalances`)
+  - transactions (**normalized**: `getMeTransactions()` returns flat `IbexNormalizedTransactions`)
   - addresses
   - signers
   - monitored tokens
@@ -29,6 +29,20 @@ The SDK currently integrates:
   - payment intent/confirmation
   - transactions list/detail
   - mandates create/list/detail/status/cancel
+
+### SDK Normalization Pattern
+
+The SDK normalizes complex, nested API responses into stable, flat structures. This shields consumers from API format changes and simplifies data access:
+
+| SDK Method | Returns (normalized) | Raw alternative |
+|---|---|---|
+| `getMe()` | `IbexNormalizedProfile` | `getMeRaw()` |
+| `getMeBalances(query?)` | `IbexNormalizedBalances` | `getMeBalancesRaw(query?)` |
+| `getMeTransactions(query?)` | `IbexNormalizedTransactions` | `getMeTransactionsRaw(query?)` |
+
+- **Normalized methods** flatten nested API structures (e.g. `crypto[chainId][walletAddress]` → flat `wallets[]` array) into typed, developer-friendly objects.
+- **Raw methods** return the untouched API response for debugging or advanced use cases.
+- If the API changes its internal structure, only the SDK normalizers need updating — consumer code remains stable.
 
 ## Base URL
 
@@ -77,11 +91,14 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `authenticateWithPasskey()` (fallback) | `POST` | `/v1.2/auth/sign-up` |
 | `refreshSession()` / `refreshSessionDetailed()` | `POST` | `/v1.2/auth/refresh` |
 | `getMe()` | `GET` | `/v1.2/users/me` |
+| `getMeRaw()` | `GET` | `/v1.2/users/me` |
 | `updateMeData(data)` | `POST` | `/v1.2/users/me` |
 | `setAlertFlag(alertKey, enabled)` | `POST` | `/v1.2/users/me` |
 | `removeAlertFlag(alertKey)` | `POST` | `/v1.2/users/me` |
 | `getMeBalances(query?)` | `GET` | `/v1.2/users/me/balances` |
+| `getMeBalancesRaw(query?)` | `GET` | `/v1.2/users/me/balances` |
 | `getMeTransactions(query?)` | `GET` | `/v1.2/users/me/transactions` |
+| `getMeTransactionsRaw(query?)` | `GET` | `/v1.2/users/me/transactions` |
 | `getMeAddress()` | `GET` | `/v1.2/users/me/address` |
 | `getMeSigners()` | `GET` | `/v1.2/users/me/signers` |
 | `getMeTokens()` | `GET` | `/v1.2/users/me/tokens` |
@@ -149,10 +166,42 @@ Expected SDK result:
 ### `getMe()`
 
 - Endpoint: `GET /v1.2/users/me`
-- Purpose: fetch authenticated user profile and related user-scoped data
-- SDK behavior:
-  - normalizes payload shape to expose a stable `data` field
-  - extracts and stores `externalUserId` when available
+- Purpose: fetch authenticated user profile (aggregator endpoint) and return all sections in a normalized, stable structure
+- **Returns `IbexNormalizedProfile`**:
+  ```
+  {
+    externalUserId?: string,
+    rpId?: string,
+    signerId?: string,
+    wallets: [
+      { safeAddress, chainIds, threshold, primary, eoaAddresses: [{ type, address }], ... },
+      ...
+    ],
+    signers: [
+      { id, type, walletMode, keyName, createdAt, safesCount, ... },
+      ...
+    ],
+    ibans: [...],
+    balances?: IbexNormalizedBalances,     // same shape as getMeBalances()
+    transactions?: IbexNormalizedTransactions,  // same shape as getMeTransactions()
+    kycStatus?: { externalUserId, kycLevel, status, verified },
+    addressbook: [...],
+    data?: { ... },                        // userdata key-value store
+    errors?: { "<section>": { status, message } }
+  }
+  ```
+- The SDK normalizes all nested sections:
+  - `balances` → reuses `normalizeBalancesResponse()` (flat `wallets[]` array)
+  - `transactions` → reuses `normalizeTransactionsResponse()` (flat `chains[]` array)
+  - `addresses.wallets[]` → extracts `eoaAddresses` from `derived.global.eoaAddresses`
+  - `signers`, `ibans`, `addressbook`, `kycStatus` → passed through as typed arrays/objects
+- Extracts and stores `externalUserId` automatically
+
+### `getMeRaw()`
+
+- Same endpoint as `getMe()`.
+- Returns `IbexUserProfile` — the raw API response with minimal normalization (legacy `data`/`userdata` extraction only).
+- Use this if you need the original API structure.
 
 ### `updateMeData(data)`
 
@@ -182,9 +231,27 @@ Expected SDK result:
   - `includePrices?: boolean`
   - `page?: number`
   - `limit?: number`
-- Chain behavior:
-  - **No `blockchainId`**: returns balances across all chains (aggregated mode — response includes `crypto`, `fiat`, `totals`)
-  - **With `blockchainId`**: returns balances for that chain only (scoped mode — response includes `balance` bucket)
+- **Returns `IbexNormalizedBalances`** — the SDK normalizes the API response into a stable, flat structure regardless of the API mode (aggregated or scoped):
+  ```
+  {
+    timestamp?: string,
+    prices_available?: boolean,
+    wallets: [
+      { chainId, walletAddress, tokens: [...], pending: [...] },
+      { chainId, walletAddress, tokens: [...], pending: [...] },
+      ...
+    ],
+    totals?: { grand_total_value_eur, grand_total_value_usd, ... }
+  }
+  ```
+- The `wallets` array is always flat — the SDK flattens the API's nested `crypto[chainId][walletAddress]` structure automatically.
+- Token fields include: `tokenAddress`, `primaryAddress`, `symbol`, `decimals`, `balance`, `price_usd`, `price_eur`, `value_usd`, `value_eur`, `price_source`, etc.
+
+### `getMeBalancesRaw(query?)`
+
+- Same endpoint and query params as `getMeBalances()`.
+- Returns `IbexUserBalancesResponse` — the raw API response without normalization.
+- Use this if you need the original API structure (e.g. for debugging or advanced use cases).
 
 ### `getMeTransactions(query?)`
 
@@ -203,6 +270,42 @@ Expected SDK result:
   - `page?: number`
   - `limit?: number`
   - `includePrices?: boolean`
+- **Returns `IbexNormalizedTransactions`** — the SDK normalizes the API response into a stable, flat structure regardless of the API mode (aggregated or scoped):
+  ```
+  {
+    type?: string,           // "mixed" | "crypto" | "fiat"
+    timestamp?: string,
+    prices_available?: boolean,
+    chains: [
+      {
+        chainId: "421614",
+        total: 117,
+        page: 1,
+        limit: 50,
+        totalPages: 3,
+        transactions: [ { id, transactionHash, from, to, tokenSymbol, valueFormatted, direction, ... }, ... ]
+      },
+      {
+        chainId: "100",
+        total: 1,
+        page: 1,
+        limit: 50,
+        totalPages: 1,
+        transactions: [...]
+      }
+    ],
+    fiat?: { total, page, limit, totalPages, transactions: [...] }
+  }
+  ```
+- The `chains` array is always flat — the SDK flattens the API's nested `crypto.transactions[chainId]` structure automatically.
+- Each transaction includes: `id`, `transactionHash`, `from`, `to`, `tokenAddress`, `tokenSymbol`, `value`, `valueFormatted`, `direction`, `blockchainId`, `price_usd`, `price_eur`, `value_usd`, `value_eur`, etc.
+- Pagination info (`total`, `page`, `limit`, `totalPages`) is preserved per chain.
+
+### `getMeTransactionsRaw(query?)`
+
+- Same endpoint and query params as `getMeTransactions()`.
+- Returns `IbexUserTransactionsResponse` — the raw API response without normalization.
+- Use this if you need the original API structure (e.g. for debugging or advanced use cases).
 
 ### `getMeAddress()`
 
@@ -298,8 +401,8 @@ Expected SDK result:
 - Response shape:
   - `Array<{ id: number, name?: string, modules?: { billing?, cowswap?, recovery?, automation? } }>`
 - Usage:
-  - Resolve user chain context from `getMe()` (`chainid.defaultChainId`, `chainid.chains[].chainId`)
-  - Join with `getChains()` entries by `id` to get chain `name` and `modules`
+  - Resolve user chain context from `getMe()` → `wallets[].chainIds[]` (each wallet lists its chain IDs)
+  - Join wallet chain IDs with `getChains()` entries by `id` to get chain `name` and `modules`
   - If a user has a wallet on a chain but a module is `false` in `getChains()`, the feature must stay hidden/disabled for that chain
 
 ### 5) SEPA Endpoints
@@ -519,7 +622,11 @@ The following API families are not wrapped by high-level SDK methods in `sdk/ibe
 
 1. Initialize SDK with `apiBaseUrl` (and optional `blockchainId`).
 2. Call `authenticateWithPasskey()`.
-3. Load profile with `getMe()`.
-4. Load wallet/portfolio resources (`getMeAddress`, `getMeBalances`, `getMeTransactions`, etc.).
+3. Load full profile with `getMe()` — this single call returns **all** normalized user data:
+   - `wallets[]` (with `eoaAddresses[]`), `signers[]`, `ibans[]`
+   - `balances` (same structure as `getMeBalances()`)
+   - `transactions` (same structure as `getMeTransactions()`)
+   - `kycStatus`, `addressbook[]`, `data` (userdata)
+4. For subsequent partial refreshes, use dedicated methods (`getMeBalances()`, `getMeTransactions()`, etc.) instead of reloading the full profile.
 5. Persist user settings via `updateMeData(...)` as needed.
 6. Let SDK auto-refresh/retry protected requests when session expires.

@@ -660,10 +660,39 @@ Practical rule:
 
 Use this section to avoid guessing payload paths.
 
+### User Profile (aggregator) — `getMe()`
+
+SDK method: `getMe()` returns `IbexNormalizedProfile` — a fully normalized, stable structure:
+```
+{
+  externalUserId?: string,
+  rpId?: string,
+  signerId?: string,
+  wallets: [
+    { safeAddress, chainIds: [421614], threshold, primary, eoaAddresses: [{ type: "EVM", address: "0x..." }, ...], ... },
+    ...
+  ],
+  signers: [ { id, type, walletMode, keyName, createdAt, safesCount, ... } ],
+  ibans: [ { iban, status, ... } ],
+  balances?: IbexNormalizedBalances,       // same shape as getMeBalances()
+  transactions?: IbexNormalizedTransactions, // same shape as getMeTransactions()
+  kycStatus?: { externalUserId, kycLevel, status, verified },
+  addressbook: [ { id, name, crypto, ibans, ... } ],
+  data?: { ... },                          // userdata key-value store
+  errors?: { "<section>": { status, message } }
+}
+```
+- `getMeRaw()` returns the raw API response (`IbexUserProfile`) if you need the original structure.
+- The SDK normalizes all nested sections automatically:
+  - `addresses.wallets[].derived.global.eoaAddresses` → flat `eoaAddresses[]` per wallet
+  - `balances` → `normalizeBalancesResponse()` (flat `wallets[]`)
+  - `transactions` → `normalizeTransactionsResponse()` (flat `chains[]`)
+  - `ibans.ibans[]` → flat `ibans[]`
+  - `addressbook.data[]` or `addressbook.entries[]` → flat `addressbook[]`
+
 ### A) User IBANs
 
-- HTTP (`GET /v1.2/users/me`) typical path:
-  - `ibans.ibans[]` with rows like `{ iban, status }`
+- HTTP: `getMe() -> ibans[]` (normalized) or raw `users/me -> ibans.ibans[]`
 - WS snapshot (`type = "user_data"`):
   - `data.ibans.data.ibans[]` (section envelope: `{ status, data }`)
 - WS signal events:
@@ -671,9 +700,7 @@ Use this section to avoid guessing payload paths.
 
 ### B) User wallets
 
-- HTTP (`GET /v1.2/users/me`) typical path:
-  - `addresses.wallets[]` (or `addresses.data.wallets[]` depending normalizer)
-  - rows typically include safe/wallet address and chain linkage.
+- HTTP: `getMe() -> wallets[]` (normalized, includes `eoaAddresses[]`) or raw `users/me -> addresses.wallets[]`
 - WS snapshot (`type = "user_data"`):
   - `data.addresses.data.wallets[]`
 - Related WS context:
@@ -682,18 +709,23 @@ Use this section to avoid guessing payload paths.
 
 ### C) Address book entries
 
-- HTTP (`GET /v1.2/users/me`) typical path:
-  - `addressbook.data[]` with rows like `{ id, name, crypto, ibans }`
+- HTTP: `getMe() -> addressbook[]` (normalized) or raw `users/me -> addressbook.data[]`
 - WS snapshot (`type = "user_data"`):
   - `data.addressbook.data.data[]` in strict section-envelope mode
   - if your normalizer flattens section envelopes, use normalized `addressbook.data[]`.
 
 ### D) FIAT + CRYPTO balances
 
-- HTTP (`GET /v1.2/users/me/balances`) chain behavior:
-  - **No `blockchainId`**: aggregated mode — returns balances across **all chains** (response shape: `{ crypto, fiat, totals }`)
-  - **With `blockchainId`**: scoped mode — returns balances for one chain (response shape: `{ type, identifier, balance: { tokens[] } }`)
-  - Optional scoping: `walletAddress` (one wallet) or `iban` (one IBAN); mutually exclusive.
+- SDK method: `getMeBalances()` → `GET /v1.2/users/me/balances`
+- The SDK **normalizes** the API response into a stable flat structure:
+  ```
+  { timestamp, prices_available, wallets: [{ chainId, walletAddress, tokens[], pending[] }], totals? }
+  ```
+- This normalization works for both API modes:
+  - **Aggregated** (no `blockchainId`): multiple wallets across all chains → flat `wallets[]` array
+  - **Scoped** (with `blockchainId`, `walletAddress`, or `iban`): single wallet → `wallets[]` with one entry
+- Use `getMeBalancesRaw()` if you need the original API response (nested `crypto[chainId][walletAddress]` structure).
+- Token fields: `tokenAddress`, `primaryAddress`, `secondaryAddress`, `symbol`, `decimals`, `balance`, `active`, `price_usd`, `price_eur`, `value_usd`, `value_eur`, `price_updated_at`, `price_source`.
 - HTTP (`GET /v1.2/users/me`) typical path:
   - `balances` section (commonly includes `type`, `identifier`, `balance.tokens[]`, etc.)
 - WS snapshot/response:
@@ -704,6 +736,24 @@ Use this section to avoid guessing payload paths.
 
 ### E) FIAT + CRYPTO transactions
 
+- SDK method: `getMeTransactions(query?)` returns `IbexNormalizedTransactions`:
+  ```
+  {
+    type?: string,            // "mixed" | "crypto" | "fiat"
+    timestamp?: string,
+    prices_available?: boolean,
+    chains: [
+      { chainId: "421614", total: 117, page: 1, limit: 50, totalPages: 3, transactions: [...] },
+      { chainId: "100", total: 1, page: 1, limit: 50, totalPages: 1, transactions: [...] }
+    ],
+    fiat?: { total, page, limit, totalPages, transactions: [...] }
+  }
+  ```
+- This normalization works for both API modes:
+  - **Aggregated** (no `blockchainId`): multiple chains → flat `chains[]` array
+  - **Scoped** (with `blockchainId`): single chain → `chains[]` with one entry
+- Use `getMeTransactionsRaw()` if you need the original API response (nested `crypto.transactions[chainId]` structure).
+- Transaction fields: `id`, `transactionHash`, `from`, `to`, `tokenAddress`, `primaryAddress`, `tokenSymbol`, `value`, `valueFormatted`, `direction`, `watchedAddress`, `blockchainId`, `price_usd`, `price_eur`, `value_usd`, `value_eur`, `price_updated_at`, `price_source`.
 - HTTP (`GET /v1.2/users/me`) typical path:
   - `transactions` section (commonly includes `type`, `total`, `data[]`)
 - WS snapshot/response:
@@ -719,7 +769,7 @@ Implementation tip:
 ### F) CRYPTO transfers (execution + tracking)
 
 - Create transfer intent/execution through Safe operations (`POST/PUT /v1.2/safes/operations`) with transfer operation types.
-- Read transfer history via `GET /v1.2/users/me/transactions` with `scope=crypto` and filters (`walletAddress`, `direction`, `tokenAddress`, `hash`, `page`, `limit`).
+- Read transfer history via `getMeTransactions({ scope: "crypto", walletAddress, direction, tokenAddress, hash, page, limit })` — returns normalized `chains[]` array.
 - Realtime transfer updates come from `new_transaction` (and related `balance_update`).
 
 ### G) SEPA payments (execution + tracking)
