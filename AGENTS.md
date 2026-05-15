@@ -96,9 +96,14 @@ When a Node.js proxy forwards requests to IBEx, there is no browser `Origin` hea
 Must support:
 
 - passkey auth + robust session lifecycle
+- email recovery flow (`POST /v1.2/auth/email/recover`) for email-wallet users
 - users/me read/write
 - address-book (SEPA + crypto)
 - balances/transactions/address resources
+- user operations tracking (`GET /v1.2/users/me/operations`)
+- email verification (validate + confirm)
+- KYC/KYB iframe onboarding (`POST /v1.2/auth/iframe`)
+- recovery status (`GET /v1.2/recovery/status/:safeAddress`)
 - SEPA payments and mandates where required by task
 - swap quote retrieval (`GET /v1.2/safes/swap/quote`) and execution (`SWAP_FROM_QUOTE` via safe operations)
 - websocket event handling for real-time updates when task requires realtime behavior

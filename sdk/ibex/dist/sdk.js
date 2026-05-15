@@ -1,5 +1,5 @@
 import { browserStorage } from "./storage";
-import { defaultResolveRpId, extractAuthTokens, extractExternalUserId, isAuthStatusError, normalizeSignInOptions, normalizeSignUpOptions, normalizeUsersMePayload, serializeAssertion, serializeAttestation, } from "./utils";
+import { defaultResolveRpId, extractAuthTokens, extractExternalUserId, isAuthStatusError, normalizeBalancesResponse, normalizeTransactionsResponse, normalizeUserProfileResponse, normalizeSignInOptions, normalizeSignUpOptions, normalizeUsersMePayload, serializeAssertion, serializeAttestation, } from "./utils";
 export const IBEX_TOKEN_KEY = "ibex_jwt";
 export const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
 export const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
@@ -173,6 +173,13 @@ export class IbexSdk {
         }
     }
     async getMe() {
+        const raw = await this.getMeRaw();
+        const normalized = normalizeUserProfileResponse(raw);
+        if (normalized.externalUserId)
+            this.storage.set(this.keyExternalUserId, normalized.externalUserId);
+        return normalized;
+    }
+    async getMeRaw() {
         const profile = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me", token, {
             method: "GET",
         }));
@@ -200,11 +207,19 @@ export class IbexSdk {
         return this.updateMeData({ [alertKey]: null });
     }
     async getMeBalances(query = {}) {
+        const raw = await this.getMeBalancesRaw(query);
+        return normalizeBalancesResponse(raw);
+    }
+    async getMeBalancesRaw(query = {}) {
         const path = this.buildPathWithQuery("/v1.2/users/me/balances", query);
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
     async getMeTransactions(query = {}) {
+        const raw = await this.getMeTransactionsRaw(query);
+        return normalizeTransactionsResponse(raw);
+    }
+    async getMeTransactionsRaw(query = {}) {
         const path = this.buildPathWithQuery("/v1.2/users/me/transactions", query);
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
@@ -231,6 +246,57 @@ export class IbexSdk {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
+    // --- Chains ---
+    async getChains() {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/chains/", token, { method: "GET" }));
+        return (Array.isArray(payload) ? payload : []);
+    }
+    // --- Recovery ---
+    async getRecoveryStatus(safeAddress) {
+        const encoded = encodeURIComponent(safeAddress);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/recovery/status/${encoded}`, token, { method: "GET" }));
+        return payload;
+    }
+    // --- User Operations ---
+    async getMeOperations(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/users/me/operations", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    // --- Email Validation ---
+    async validateEmail(request) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/validate-email", token, {
+            method: "POST",
+            body: request,
+        }));
+        return payload;
+    }
+    async confirmEmail(request) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/confirm-email", token, {
+            method: "POST",
+            body: request,
+        }));
+        return payload;
+    }
+    // --- KYC Iframe ---
+    async getKycIframeUrl(request = {}) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/auth/iframe", token, {
+            method: "POST",
+            body: request,
+        }));
+        return payload;
+    }
+    // --- Email Recovery (Public) ---
+    async recoverWithEmail(request) {
+        const rpId = this.resolveRpId();
+        const payload = await this.jsonFetch("/v1.2/auth/email/recover", {
+            method: "POST",
+            headers: { "X-Rp-Id": rpId, "X-RpId": rpId },
+            body: request,
+        });
+        return payload;
+    }
+    // --- Address Book ---
     async getMeAddressBook() {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/addressbook", token, { method: "GET" }));
         return payload;

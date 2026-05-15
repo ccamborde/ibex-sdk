@@ -40,6 +40,14 @@ Example: `localhost` (for `http://localhost:PORT/`) or `demobaas-prat1.ibex.fi` 
 | Refresh token | POST | `/v1.2/auth/refresh` | No (uses refresh_token in body) |
 | Read user data | GET | `/v1.2/users/me` | Yes |
 | Write user data | POST | `/v1.2/users/me` | Yes |
+| User balances | GET | `/v1.2/users/me/balances` | Yes |
+| User transactions | GET | `/v1.2/users/me/transactions` | Yes |
+| User addresses | GET | `/v1.2/users/me/address` | Yes |
+| User signers | GET | `/v1.2/users/me/signers` | Yes |
+| User tokens | GET | `/v1.2/users/me/tokens` | Yes |
+| User pools | GET | `/v1.2/users/me/pools` | Yes |
+| User lending | GET | `/v1.2/users/me/lending` | Yes |
+| List address book | GET | `/v1.2/users/me/addressbook` | Yes |
 | Create address book entry | POST | `/v1.2/users/me/addressbook` | Yes |
 | Add IBAN | POST | `/v1.2/sepa/iban/add` | Yes |
 | List IBANs | GET | `/v1.2/sepa/iban` | Yes |
@@ -53,6 +61,12 @@ Example: `localhost` (for `http://localhost:PORT/`) or `demobaas-prat1.ibex.fi` 
 | Update mandate status | PATCH | `/v1.2/sepa/mandates/:id/status` | Yes |
 | Cancel mandate | POST | `/v1.2/sepa/mandates/:id/cancel` | Yes |
 | List chains | GET | `/v1.2/chains/` | Yes |
+| Recovery status | GET | `/v1.2/recovery/status/:safeAddress` | Yes |
+| User operations | GET | `/v1.2/users/me/operations` | Yes |
+| Validate email | POST | `/v1.2/users/me/validate-email` | Yes |
+| Confirm email | POST | `/v1.2/users/me/confirm-email` | Yes |
+| KYC iframe URL | POST | `/v1.2/auth/iframe` | Yes |
+| Email recovery | POST | `/v1.2/auth/email/recover` | No (public) |
 | Get swap quote | GET | `/v1.2/safes/swap/quote` | Yes |
 | Prepare safe operation(s) | POST | `/v1.2/safes/operations` | Yes |
 | Execute safe operation(s) | PUT | `/v1.2/safes/operations` | Yes |
@@ -792,6 +806,76 @@ Implementation tip:
 - Obtain a DEX swap quote: `GET /v1.2/safes/swap/quote` with `sellTokenAddress`, `buyTokenAddress`, `amount` (required) and optional `chainId`, `safeAddress`, `provider`.
 - Response includes `quoteId` to be used with `SWAP_FROM_QUOTE` operation.
 - Supports COWSWAP, 1INCH, or both providers.
+
+### J) User data write — `updateMeData()`, `setAlertFlag()`, `removeAlertFlag()`
+
+- `updateMeData(data)` → `POST /v1.2/users/me` with body `{ "data": { key: value, ... } }`.
+- Stores arbitrary key-value pairs in user profile. Keys prefixed with `private.` are stored but never returned by `GET /users/me`.
+- `setAlertFlag(alertKey, enabled)` → convenience wrapper: sends `{ "data": { "<alertKey>": true|false } }`.
+- `removeAlertFlag(alertKey)` → convenience wrapper: sends `{ "data": { "<alertKey>": null } }`.
+- Response: `{ success: true }`.
+
+### K) DeFi pools — `getMePools()`
+
+- SDK method: `getMePools(query?)` → `GET /v1.2/users/me/pools`
+- Optional query: `walletAddress`, `page`, `limit`.
+- Response shape depends on upstream BCReader; the SDK passes through without normalization.
+- The blockchain context is resolved from `X-Blockchain-Id` header (set at SDK initialization).
+
+### L) Lending — `getMeLending()`
+
+- SDK method: `getMeLending(query?)` → `GET /v1.2/users/me/lending`
+- Optional query: `walletAddress`, `page`, `limit`.
+- Response shape depends on upstream BCReader; the SDK passes through without normalization.
+- The blockchain context is resolved from `X-Blockchain-Id` header (set at SDK initialization).
+
+### M) Wallet addresses — `getMeAddress()`
+
+- SDK method: `getMeAddress()` → `GET /v1.2/users/me/address`
+- Returns wallet addresses per Safe across all deployed chains, including per-chain module status and derived EOA/Solana/Bitcoin addresses.
+
+### N) Signers — `getMeSigners()`
+
+- SDK method: `getMeSigners()` → `GET /v1.2/users/me/signers`
+- Returns signer identities (PASSKEY, EOA, EMAIL_TOKEN) with metadata (walletMode, keyName, safesCount).
+
+### O) Monitored tokens — `getMeTokens()`
+
+- SDK method: `getMeTokens()` → `GET /v1.2/users/me/tokens`
+- Returns the monitored token list for the user's blockchain context (proxy to BCReader config).
+- With `blockchainId` configured: scoped to one chain. Without: multi-chain response.
+
+### P) Recovery status — `getRecoveryStatus()`
+
+- SDK method: `getRecoveryStatus(safeAddress)` → `GET /v1.2/recovery/status/:safeAddress`
+- Returns: `recoveryEnabled`, `recoveryAddress`, `delay`, `pendingRecovery`, `canExecute`, `executeAfter`, `dataRecovery`, `pending[]`, `executed[]`.
+- Complements `enableRecovery()` and `cancelRecovery()` — check status before toggling.
+
+### Q) User operations — `getMeOperations()`
+
+- SDK method: `getMeOperations(query?)` → `GET /v1.2/users/me/operations`
+- Returns operations grouped by Safe address (`data: { "0xSafe...": [ operations ] }`).
+- Optional query: `status` (`CREATED | SIGNED | EXECUTED | CONFIRMED | FAILED`), `limit`, `offset`.
+- Useful for tracking pending transactions after `executeSafeOperations()`.
+
+### R) Email verification — `validateEmail()` + `confirmEmail()`
+
+- `validateEmail({ email, externalUserId })` → `POST /v1.2/users/me/validate-email` — sends OTP.
+- `confirmEmail({ email, code, externalUserId })` → `POST /v1.2/users/me/confirm-email` — confirms OTP.
+- Two-step email onboarding: validate → user receives code → confirm.
+
+### S) KYC iframe — `getKycIframeUrl()`
+
+- SDK method: `getKycIframeUrl({ language? })` → `POST /v1.2/auth/iframe`
+- Returns: `chatbotURL`, `sessionId`, `chatbotFullURL`, `alreadySent`.
+- Embed `chatbotURL` in an iframe or redirect to `chatbotFullURL` for KYC completion.
+- After KYC, check `getMe().kycStatus` for updated level/status.
+
+### T) Email recovery — `recoverWithEmail()`
+
+- SDK method: `recoverWithEmail({ email, emailOtp?, ... })` → `POST /v1.2/auth/email/recover` (PUBLIC).
+- No JWT required — this is a recovery entry point for email-wallet users.
+- Response data is used to complete sign-in via `POST /v1.2/auth/sign-in` (wallet=email).
 
 ---
 

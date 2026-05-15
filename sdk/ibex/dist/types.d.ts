@@ -29,6 +29,49 @@ export type IbexUserProfile = {
     data?: JsonObject;
     userdata?: JsonObject;
 } & JsonObject;
+export type IbexEoaAddress = {
+    type: string;
+    address: string;
+};
+export type IbexWalletInfo = {
+    safeAddress: string;
+    chainIds: number[];
+    threshold?: number;
+    primary?: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+    eoaAddresses: IbexEoaAddress[];
+} & JsonObject;
+export type IbexSigner = {
+    id?: string;
+    type?: string;
+    typeDescription?: string;
+    walletMode?: string;
+    keyName?: string;
+    keyDisplayName?: string;
+    createdAt?: string;
+    safesCount?: number;
+} & JsonObject;
+export type IbexKycStatus = {
+    externalUserId?: string;
+    kycLevel?: string;
+    status?: string;
+    verified?: boolean;
+} & JsonObject;
+export type IbexNormalizedProfile = {
+    externalUserId?: string;
+    rpId?: string;
+    signerId?: string;
+    wallets: IbexWalletInfo[];
+    signers: IbexSigner[];
+    ibans: JsonObject[];
+    balances?: IbexNormalizedBalances;
+    transactions?: IbexNormalizedTransactions;
+    kycStatus?: IbexKycStatus;
+    addressbook: JsonObject[];
+    data?: JsonObject;
+    errors?: Record<string, JsonObject>;
+};
 export type IbexHttpMeta = {
     payload: JsonObject;
     status: number;
@@ -58,6 +101,8 @@ export type IbexHttpError = Error & {
 };
 export type IbexBalancesQuery = {
     walletAddress?: string;
+    iban?: string;
+    blockchainId?: string | number;
     includeZero?: boolean;
     includePrices?: boolean;
     page?: number;
@@ -134,39 +179,110 @@ export type IbexAddAddressBookCryptoInput = {
 };
 export type IbexBalanceToken = {
     tokenAddress?: string;
+    primaryAddress?: string;
+    secondaryAddress?: string | null;
+    active?: boolean;
     symbol?: string;
     name?: string;
     decimals?: number;
     balance?: string;
     tokenType?: string;
+    status?: string;
+    source?: string;
     price?: number;
     value?: number;
     price_usd?: number;
     price_eur?: number;
     value_usd?: string;
     value_eur?: string;
+    price_updated_at?: string;
+    price_source?: string;
 } & JsonObject;
 export type IbexBalancesBucket = {
     tokens?: IbexBalanceToken[];
     pending?: JsonObject[];
     summary?: JsonObject;
 } & JsonObject;
+/**
+ * Aggregated mode: `crypto` is keyed by chainId, then by walletAddress.
+ * Example: `crypto["421614"]["0xABC..."].tokens[]`
+ */
+export type IbexBalancesAggregatedCrypto = Record<string, Record<string, IbexBalancesBucket>>;
+export type IbexBalancesAggregatedFiat = Record<string, Record<string, IbexBalancesBucket>>;
+export type IbexBalancesTotals = {
+    crypto_total_value_eur?: string;
+    fiat_total_value_eur?: string;
+    grand_total_value_eur?: string;
+    crypto_total_value_usd?: string;
+    fiat_total_value_usd?: string;
+    grand_total_value_usd?: string;
+    conversion_rate_eur_usd?: number;
+} & JsonObject;
 export type IbexUserBalancesResponse = {
+    timestamp?: string;
+    prices_available?: boolean;
+    /** Scoped mode (single chain / single wallet / single IBAN) */
     type?: string;
     identifier?: string;
-    timestamp?: string;
     blockchainId?: string | number;
-    prices_available?: boolean;
     balance?: IbexBalancesBucket;
+    /** Aggregated mode (all chains, no blockchainId filter) */
+    crypto?: IbexBalancesAggregatedCrypto;
+    fiat?: IbexBalancesAggregatedFiat;
+    totals?: IbexBalancesTotals;
 } & JsonObject;
+export type IbexWalletBalance = {
+    chainId: string;
+    walletAddress: string;
+    tokens: IbexBalanceToken[];
+    pending: JsonObject[];
+};
+export type IbexNormalizedBalances = {
+    timestamp?: string;
+    prices_available?: boolean;
+    wallets: IbexWalletBalance[];
+    totals?: IbexBalancesTotals;
+};
 export type IbexTransaction = {
+    id?: number;
+    blockNumber?: number;
     transactionHash?: string;
     hash?: string;
-    valueFormatted?: string;
     timestamp?: string | number;
+    from?: string;
+    to?: string;
+    tokenAddress?: string;
+    primaryAddress?: string;
+    secondaryAddress?: string | null;
+    tokenType?: string;
+    tokenId?: string | null;
+    tokenSymbol?: string;
+    value?: string;
+    valueFormatted?: number | string;
+    direction?: string;
+    watchedAddress?: string;
+    blockchainId?: string | number;
+    active?: boolean;
+    balance?: number | string;
+    price_usd?: number;
+    price_eur?: number;
+    value_usd?: string;
+    value_eur?: string;
+    price_updated_at?: string;
+    price_source?: string;
+    createdAt?: string;
+    updatedAt?: string;
 } & JsonObject;
+export type IbexTransactionPage = {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    data: IbexTransaction[];
+};
 export type IbexUserTransactionsResponse = {
     type?: string;
+    timestamp?: string;
     identifier?: string;
     blockchainId?: string | number;
     total?: number;
@@ -174,7 +290,35 @@ export type IbexUserTransactionsResponse = {
     limit?: number;
     totalPages?: number;
     data?: IbexTransaction[];
+    crypto?: {
+        timestamp?: string;
+        transactions?: Record<string, IbexTransactionPage>;
+        prices_available?: boolean;
+    } & JsonObject;
+    fiat?: JsonObject;
 } & JsonObject;
+export type IbexChainTransactions = {
+    chainId: string;
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    transactions: IbexTransaction[];
+};
+export type IbexFiatTransactions = {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    transactions: JsonObject[];
+};
+export type IbexNormalizedTransactions = {
+    type?: string;
+    timestamp?: string;
+    prices_available?: boolean;
+    chains: IbexChainTransactions[];
+    fiat?: IbexFiatTransactions;
+};
 export type IbexUserAddressResponse = {
     type?: string;
     identifier?: string;
@@ -411,6 +555,87 @@ export type IbexSepaCancelMandateResponse = {
     data?: IbexSepaMandate;
     sepaSync?: JsonObject;
 } & JsonObject;
+export type IbexRecoveryOperation = {
+    userOpHash?: string;
+    transactionHash?: string;
+    status?: string;
+    createdAt?: string;
+    updatedAt?: string;
+} & JsonObject;
+export type IbexRecoveryStatusResponse = {
+    safeAddress?: string;
+    recoveryEnabled?: boolean;
+    recoveryAddress?: string | null;
+    delay?: number | null;
+    pendingRecovery?: boolean;
+    canExecute?: boolean;
+    executeAfter?: string | null;
+    dataRecovery?: boolean;
+    pending?: IbexRecoveryOperation[];
+    executed?: IbexRecoveryOperation[];
+    userOpHash?: string | null;
+    transactionHash?: string | null;
+} & JsonObject;
+export type IbexUserOperationSignature = {
+    createdAt?: string;
+    data?: JsonObject;
+    signerId?: string;
+} & JsonObject;
+export type IbexSafeOperationDetail = {
+    userOpHash?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    paymaster?: string;
+    status?: "CREATED" | "SIGNED" | "EXECUTED" | "CONFIRMED" | "FAILED";
+    error?: string | null;
+    safeAddress?: string;
+    transactionHash?: string | null;
+    signatures?: IbexUserOperationSignature[];
+} & JsonObject;
+export type IbexUserOperation = {
+    id?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    index?: number;
+    type?: string;
+    data?: JsonObject;
+    safeOperation?: IbexSafeOperationDetail;
+} & JsonObject;
+export type IbexUserOperationsQuery = {
+    status?: string;
+    limit?: number;
+    offset?: number;
+};
+export type IbexUserOperationsResponse = {
+    data?: Record<string, IbexUserOperation[]>;
+} & JsonObject;
+export type IbexValidateEmailRequest = {
+    email: string;
+    externalUserId: string;
+};
+export type IbexValidateEmailResponse = JsonObject;
+export type IbexConfirmEmailRequest = {
+    email: string;
+    code: string;
+    externalUserId: string;
+};
+export type IbexConfirmEmailResponse = JsonObject;
+export type IbexKycIframeRequest = {
+    language?: string;
+};
+export type IbexKycIframeResponse = {
+    chatbotURL?: string;
+    sessionId?: string;
+    chatbotFullURL?: string;
+    alreadySent?: boolean;
+} & JsonObject;
+export type IbexEmailRecoverRequest = {
+    email: string;
+    emailOtp?: string;
+    code?: string;
+    externalUserId?: string;
+} & JsonObject;
+export type IbexEmailRecoverResponse = JsonObject;
 export type IbexSafeOperationType = "SIGN_MESSAGE" | "ENABLE_RECOVERY" | "CANCEL_RECOVERY" | "TRANSFER_TOKEN" | "TRANSFER_EURe" | "SWAP_FROM_QUOTE" | "AAVE_SUPPLY" | "AAVE_WITHDRAW" | "ADD_OWNER" | "REMOVE_OWNER" | "CHANGE_THRESHOLD";
 export type IbexSafeSignMessageOperation = {
     type: "SIGN_MESSAGE";
@@ -471,6 +696,18 @@ export type IbexSafeExecuteResponse = {
     walletMode?: string;
     success?: boolean;
 } & JsonObject;
+export type IbexChainModules = {
+    billing?: boolean;
+    cowswap?: boolean;
+    recovery?: boolean;
+    automation?: boolean;
+} & JsonObject;
+export type IbexChain = {
+    id: number;
+    name?: string;
+    modules?: IbexChainModules;
+} & JsonObject;
+export type IbexChainsResponse = IbexChain[];
 export type IbexSwapQuoteProvider = "COWSWAP" | "1INCH" | "BOTH";
 export type IbexSwapQuoteQuery = {
     sellTokenAddress: string;

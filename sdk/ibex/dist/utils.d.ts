@@ -1,4 +1,4 @@
-import type { IbexTokens, IbexUserProfile, JsonObject } from "./types";
+import type { IbexNormalizedBalances, IbexNormalizedProfile, IbexNormalizedTransactions, IbexTokens, IbexUserBalancesResponse, IbexUserProfile, IbexUserTransactionsResponse, JsonObject } from "./types";
 export declare function defaultResolveRpId(hostname?: string): string;
 export declare function isAuthStatusError(error: unknown): boolean;
 export declare function toBase64Url(buffer: ArrayBuffer): string;
@@ -10,3 +10,6 @@ export declare function serializeAttestation(credential: PublicKeyCredential): J
 export declare function extractAuthTokens(payload: unknown): IbexTokens | null;
 export declare function normalizeUsersMePayload(payload: unknown): IbexUserProfile;
 export declare function extractExternalUserId(profile: IbexUserProfile): string | null;
+export declare function normalizeBalancesResponse(raw: IbexUserBalancesResponse): IbexNormalizedBalances;
+export declare function normalizeTransactionsResponse(raw: IbexUserTransactionsResponse): IbexNormalizedTransactions;
+export declare function normalizeUserProfileResponse(payload: JsonObject): IbexNormalizedProfile;

@@ -90,6 +90,22 @@ Use this quick file first, then read `docs/llms-full.txt` for full implementatio
   - `POST /v1.2/sepa/mandates/:id/cancel`
 - Keep mandate status lifecycle strict: use `validated | suspended | cancelled`.
 
+## Recovery, Operations & Onboarding (SDK Scope)
+
+- Recovery status: `getRecoveryStatus(safeAddress)` → `GET /v1.2/recovery/status/:safeAddress`
+  - Check if recovery is enabled/pending before calling `enableRecovery()` or `cancelRecovery()`
+- User operations: `getMeOperations(query?)` → `GET /v1.2/users/me/operations`
+  - Track operation status after `executeSafeOperations()` (grouped by Safe address)
+  - Filter by `status`: `CREATED | SIGNED | EXECUTED | CONFIRMED | FAILED`
+- Email verification (2-step):
+  - `validateEmail({ email, externalUserId })` → sends OTP
+  - `confirmEmail({ email, code, externalUserId })` → confirms OTP
+- KYC/KYB iframe: `getKycIframeUrl({ language? })` → `POST /v1.2/auth/iframe`
+  - Returns `chatbotURL` for iframe embed or `chatbotFullURL` for redirect
+  - Check `getMe().kycStatus` after completion
+- Email recovery (public, no JWT): `recoverWithEmail({ email, emailOtp? })` → `POST /v1.2/auth/email/recover`
+  - For email-wallet users who cannot use passkey
+
 ## DevTools Topup Endpoints (Test Only)
 
 - For development roundtrip tests, you can use:

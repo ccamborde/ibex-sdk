@@ -642,6 +642,112 @@ export type IbexSepaCancelMandateResponse = {
   sepaSync?: JsonObject;
 } & JsonObject;
 
+// --- Recovery Status ---
+
+export type IbexRecoveryOperation = {
+  userOpHash?: string;
+  transactionHash?: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+} & JsonObject;
+
+export type IbexRecoveryStatusResponse = {
+  safeAddress?: string;
+  recoveryEnabled?: boolean;
+  recoveryAddress?: string | null;
+  delay?: number | null;
+  pendingRecovery?: boolean;
+  canExecute?: boolean;
+  executeAfter?: string | null;
+  dataRecovery?: boolean;
+  pending?: IbexRecoveryOperation[];
+  executed?: IbexRecoveryOperation[];
+  userOpHash?: string | null;
+  transactionHash?: string | null;
+} & JsonObject;
+
+// --- User Operations ---
+
+export type IbexUserOperationSignature = {
+  createdAt?: string;
+  data?: JsonObject;
+  signerId?: string;
+} & JsonObject;
+
+export type IbexSafeOperationDetail = {
+  userOpHash?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  paymaster?: string;
+  status?: "CREATED" | "SIGNED" | "EXECUTED" | "CONFIRMED" | "FAILED";
+  error?: string | null;
+  safeAddress?: string;
+  transactionHash?: string | null;
+  signatures?: IbexUserOperationSignature[];
+} & JsonObject;
+
+export type IbexUserOperation = {
+  id?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  index?: number;
+  type?: string;
+  data?: JsonObject;
+  safeOperation?: IbexSafeOperationDetail;
+} & JsonObject;
+
+export type IbexUserOperationsQuery = {
+  status?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type IbexUserOperationsResponse = {
+  data?: Record<string, IbexUserOperation[]>;
+} & JsonObject;
+
+// --- Email Validation ---
+
+export type IbexValidateEmailRequest = {
+  email: string;
+  externalUserId: string;
+};
+
+export type IbexValidateEmailResponse = JsonObject;
+
+export type IbexConfirmEmailRequest = {
+  email: string;
+  code: string;
+  externalUserId: string;
+};
+
+export type IbexConfirmEmailResponse = JsonObject;
+
+// --- KYC Iframe ---
+
+export type IbexKycIframeRequest = {
+  language?: string;
+};
+
+export type IbexKycIframeResponse = {
+  chatbotURL?: string;
+  sessionId?: string;
+  chatbotFullURL?: string;
+  alreadySent?: boolean;
+} & JsonObject;
+
+// --- Email Recovery (Public) ---
+
+export type IbexEmailRecoverRequest = {
+  email: string;
+  emailOtp?: string;
+  code?: string;
+  externalUserId?: string;
+} & JsonObject;
+
+export type IbexEmailRecoverResponse = JsonObject;
+
 // --- Safe Operations ---
 
 export type IbexSafeOperationType =

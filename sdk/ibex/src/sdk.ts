@@ -31,9 +31,16 @@ import type {
   IbexSepaUpdateMandateStatusRequest,
   IbexSepaUpdateMandateStatusResponse,
   IbexChainsResponse,
+  IbexConfirmEmailRequest,
+  IbexConfirmEmailResponse,
+  IbexEmailRecoverRequest,
+  IbexEmailRecoverResponse,
+  IbexKycIframeRequest,
+  IbexKycIframeResponse,
   IbexNormalizedBalances,
   IbexNormalizedProfile,
   IbexNormalizedTransactions,
+  IbexRecoveryStatusResponse,
   IbexSdkConfig,
   IbexSdkStorage,
   IbexSwapQuoteQuery,
@@ -43,6 +50,8 @@ import type {
   IbexUserAddressResponse,
   IbexUserBalancesResponse,
   IbexUserLendingResponse,
+  IbexUserOperationsQuery,
+  IbexUserOperationsResponse,
   IbexUserPoolsResponse,
   IbexUserProfile,
   IbexUserResourceQuery,
@@ -50,6 +59,8 @@ import type {
   IbexUserTokensResponse,
   IbexUserTransactionsResponse,
   IbexUpdateAddressBookEntryInput,
+  IbexValidateEmailRequest,
+  IbexValidateEmailResponse,
   JsonObject,
 } from "./types";
 import {
@@ -361,6 +372,72 @@ export class IbexSdk {
       this.authenticatedJsonFetch("/v1.2/chains/", token, { method: "GET" }),
     );
     return (Array.isArray(payload) ? payload : []) as IbexChainsResponse;
+  }
+
+  // --- Recovery ---
+
+  async getRecoveryStatus(safeAddress: string): Promise<IbexRecoveryStatusResponse> {
+    const encoded = encodeURIComponent(safeAddress);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/recovery/status/${encoded}`, token, { method: "GET" }),
+    );
+    return payload as IbexRecoveryStatusResponse;
+  }
+
+  // --- User Operations ---
+
+  async getMeOperations(query: IbexUserOperationsQuery = {}): Promise<IbexUserOperationsResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/operations", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserOperationsResponse;
+  }
+
+  // --- Email Validation ---
+
+  async validateEmail(request: IbexValidateEmailRequest): Promise<IbexValidateEmailResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/validate-email", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return payload as IbexValidateEmailResponse;
+  }
+
+  async confirmEmail(request: IbexConfirmEmailRequest): Promise<IbexConfirmEmailResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/confirm-email", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return payload as IbexConfirmEmailResponse;
+  }
+
+  // --- KYC Iframe ---
+
+  async getKycIframeUrl(request: IbexKycIframeRequest = {}): Promise<IbexKycIframeResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/auth/iframe", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return payload as IbexKycIframeResponse;
+  }
+
+  // --- Email Recovery (Public) ---
+
+  async recoverWithEmail(request: IbexEmailRecoverRequest): Promise<IbexEmailRecoverResponse> {
+    const rpId = this.resolveRpId();
+    const payload = await this.jsonFetch("/v1.2/auth/email/recover", {
+      method: "POST",
+      headers: { "X-Rp-Id": rpId, "X-RpId": rpId },
+      body: request,
+    });
+    return payload as IbexEmailRecoverResponse;
   }
 
   // --- Address Book ---
