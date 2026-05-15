@@ -28,7 +28,9 @@ The SDK currently integrates:
   - enable recovery
   - cancel recovery
   - swap from quote
+  - route from quote (unified route engine)
 - Swap quote (get DEX quotes from COWSWAP / 1INCH)
+- Unified route engine (capabilities, quote, status for swap + bridge)
 - SEPA resources:
   - IBAN add/list
   - payment intent/confirmation
@@ -141,6 +143,10 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `cancelRecovery(safeAddress, options?)` | `POST` | `/v1.2/safes/operations` |
 | `getSwapQuote(query)` | `GET` | `/v1.2/safes/swap/quote` |
 | `swapFromQuote(safeAddress, quoteId, options?)` | `POST` | `/v1.2/safes/operations` |
+| `getRouteCapabilities(query)` | `GET` | `/v1.2/safes/routes/capabilities` |
+| `getRouteQuote(payload)` | `POST` | `/v1.2/safes/routes/quote` |
+| `getRouteStatus(routeId)` | `GET` | `/v1.2/safes/routes/:routeId/status` |
+| `routeFromQuote(safeAddress, routeId, options?)` | `POST` | `/v1.2/safes/operations` |
 
 ## Detailed Endpoint Usage
 
@@ -1898,6 +1904,92 @@ All Safe operations follow a two-step flow: **prepare** (POST) returns a WebAuth
   });
   console.log("Swap executed:", result.userOpHash);
   ```
+
+### Legacy vs Unified Route Engine
+
+- `getSwapQuote()` / `swapFromQuote()` remain available for same-chain swap legacy flows.
+- For new swap + bridge unified flows, use `getRouteCapabilities()` + `getRouteQuote()` + `routeFromQuote()` + `getRouteStatus()`.
+
+### 13) Unified Route Engine (Swap + Bridge)
+
+The SDK supports the new route engine endpoints and operation type `ROUTE_FROM_QUOTE`.
+
+### `getRouteCapabilities(query)`
+
+- Endpoint: `GET /v1.2/safes/routes/capabilities`
+- Purpose: discover route mode and available providers for a source/destination chain pair.
+- Parameters:
+  - `sourceChainId: number` (required)
+  - `destinationChainId: number` (required)
+- Returns: `IbexRouteCapabilitiesResponse`
+- Route modes:
+  - `SAME_CHAIN_SWAP`
+  - `CROSS_CHAIN_BRIDGE`
+  - `UNSUPPORTED`
+- Response fields (typical):
+  - `mode?: "SAME_CHAIN_SWAP" | "CROSS_CHAIN_BRIDGE" | "UNSUPPORTED"`
+  - `providers?: string[]`
+
+### `getRouteQuote(payload)`
+
+- Endpoint: `POST /v1.2/safes/routes/quote`
+- Purpose: request route candidates and retrieve the persisted best route identifier (`routeId`).
+- Required payload fields:
+  - `sourceChainId: number`
+  - `destinationChainId: number`
+  - `sellTokenAddress: string`
+  - `buyTokenAddress: string`
+  - `amount: string` (human-readable sell amount)
+- Optional payload fields:
+  - `safeAddress?: string`
+  - `provider?: string`
+- Returns: `IbexRouteQuoteResponse`
+- Response fields (typical):
+  - `routeId?: string` (used for execution and status polling)
+  - `mode?: "SAME_CHAIN_SWAP" | "CROSS_CHAIN_BRIDGE" | "UNSUPPORTED"`
+  - `provider?: string`
+  - `buyAmount?: string`
+  - `sellAmount?: string`
+  - `candidates?: Array<object>`
+- Notes:
+  - The backend stores the best candidate route and exposes its identifier as `routeId`.
+  - Candidate selection is performed server-side (best route semantics are backend-defined).
+
+### `getRouteStatus(routeId)`
+
+- Endpoint: `GET /v1.2/safes/routes/:routeId/status`
+- Purpose: track route lifecycle after execution.
+- Parameters:
+  - `routeId: string` (required, returned by `getRouteQuote`)
+- Returns: `IbexRouteStatusResponse`
+- Typical statuses:
+  - `CREATED`
+  - `SOURCE_PREPARED`
+  - `SOURCE_SUBMITTED`
+  - `SOURCE_CONFIRMED`
+  - `DEST_PENDING`
+  - `DEST_COMPLETED`
+  - `FAILED`
+- Response fields (typical):
+  - `routeId?: string`
+  - `status?: string`
+  - `mode?: "SAME_CHAIN_SWAP" | "CROSS_CHAIN_BRIDGE" | "UNSUPPORTED"`
+  - `sourceUserOpHash?: string | null`
+  - `transactionHash?: string | null`
+
+### `routeFromQuote(safeAddress, routeId, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with operation `{ type: "ROUTE_FROM_QUOTE", quoteId: routeId }`.
+- Purpose: prepare route execution from a previously quoted route.
+- Parameters:
+  - `safeAddress: string` (required)
+  - `routeId: string` (required, quote identifier from `getRouteQuote`)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Execute step:
+  - Use `executeSafeOperations()` afterwards with the signed WebAuthn credential.
+
+For complete end-to-end usage examples (capabilities -> quote -> routeFromQuote -> execute -> status polling), see `docs/IBEXFISDK_EXAMPLES.md`.
 
 ## Session Lifecycle and Retry Behavior
 

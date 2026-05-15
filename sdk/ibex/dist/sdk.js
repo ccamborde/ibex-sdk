@@ -447,6 +447,31 @@ export class IbexSdk {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
+    // --- Unified Route Engine ---
+    async getRouteCapabilities(query) {
+        const path = this.buildPathWithQuery("/v1.2/safes/routes/capabilities", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    async getRouteQuote(payload) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/safes/routes/quote", token, {
+            method: "POST",
+            body: payload,
+        }));
+        return response;
+    }
+    async getRouteStatus(routeId) {
+        const encoded = encodeURIComponent(routeId);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(`/v1.2/safes/routes/${encoded}/status`, token, { method: "GET" }));
+        return payload;
+    }
+    async routeFromQuote(safeAddress, routeId, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "ROUTE_FROM_QUOTE", quoteId: routeId }],
+            ...options,
+        });
+    }
     async swapFromQuote(safeAddress, quoteId, options) {
         const { orderUid, ...rest } = options || {};
         return this.prepareSafeOperations({

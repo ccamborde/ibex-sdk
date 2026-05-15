@@ -636,7 +636,7 @@ export type IbexEmailRecoverRequest = {
     externalUserId?: string;
 } & JsonObject;
 export type IbexEmailRecoverResponse = JsonObject;
-export type IbexSafeOperationType = "SIGN_MESSAGE" | "ENABLE_RECOVERY" | "CANCEL_RECOVERY" | "TRANSFER_TOKEN" | "TRANSFER_EURe" | "SWAP_FROM_QUOTE" | "AAVE_SUPPLY" | "AAVE_WITHDRAW" | "ADD_OWNER" | "REMOVE_OWNER" | "CHANGE_THRESHOLD";
+export type IbexSafeOperationType = "SIGN_MESSAGE" | "ENABLE_RECOVERY" | "CANCEL_RECOVERY" | "TRANSFER_TOKEN" | "TRANSFER_EURe" | "SWAP_FROM_QUOTE" | "ROUTE_FROM_QUOTE" | "AAVE_SUPPLY" | "AAVE_WITHDRAW" | "ADD_OWNER" | "REMOVE_OWNER" | "CHANGE_THRESHOLD";
 export type IbexSafeSignMessageOperation = {
     type: "SIGN_MESSAGE";
     message: string;
@@ -657,7 +657,11 @@ export type IbexSwapFromQuoteOperation = {
     quoteId: string;
     orderUid?: string;
 };
-export type IbexSafeOperation = IbexSafeSignMessageOperation | IbexSafeEnableRecoveryOperation | IbexSafeCancelRecoveryOperation | IbexSwapFromQuoteOperation | (JsonObject & {
+export type IbexRouteFromQuoteOperation = {
+    type: "ROUTE_FROM_QUOTE";
+    quoteId: string;
+};
+export type IbexSafeOperation = IbexSafeSignMessageOperation | IbexSafeEnableRecoveryOperation | IbexSafeCancelRecoveryOperation | IbexSwapFromQuoteOperation | IbexRouteFromQuoteOperation | (JsonObject & {
     type: string;
 });
 export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";
@@ -701,6 +705,8 @@ export type IbexChainModules = {
     cowswap?: boolean;
     recovery?: boolean;
     automation?: boolean;
+    bridge?: boolean;
+    routeEngine?: boolean;
 } & JsonObject;
 export type IbexChain = {
     id: number;
@@ -725,4 +731,39 @@ export type IbexSwapQuoteResponse = {
     fee?: string;
     validUntil?: string;
     provider?: string;
+} & JsonObject;
+export type IbexRouteMode = "SAME_CHAIN_SWAP" | "CROSS_CHAIN_BRIDGE" | "UNSUPPORTED";
+export type IbexRouteStatus = "CREATED" | "SOURCE_PREPARED" | "SOURCE_SUBMITTED" | "SOURCE_CONFIRMED" | "DEST_PENDING" | "DEST_COMPLETED" | "FAILED" | string;
+export type IbexRouteProvider = "COWSWAP" | "1INCH" | "BRIDGE" | string;
+export type IbexRouteCapabilitiesQuery = {
+    sourceChainId: number;
+    destinationChainId: number;
+};
+export type IbexRouteCapabilitiesResponse = {
+    mode?: IbexRouteMode;
+    providers?: IbexRouteProvider[];
+} & JsonObject;
+export type IbexRouteQuoteRequest = {
+    sourceChainId: number;
+    destinationChainId: number;
+    sellTokenAddress: string;
+    buyTokenAddress: string;
+    amount: string;
+    safeAddress?: string;
+    provider?: IbexRouteProvider;
+} & JsonObject;
+export type IbexRouteQuoteResponse = {
+    routeId?: string;
+    mode?: IbexRouteMode;
+    provider?: IbexRouteProvider;
+    buyAmount?: string;
+    sellAmount?: string;
+    candidates?: JsonObject[];
+} & JsonObject;
+export type IbexRouteStatusResponse = {
+    routeId?: string;
+    status?: IbexRouteStatus;
+    mode?: IbexRouteMode;
+    sourceUserOpHash?: string | null;
+    transactionHash?: string | null;
 } & JsonObject;

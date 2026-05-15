@@ -8,6 +8,11 @@ import type {
   IbexHttpError,
   IbexHttpMeta,
   IbexRefreshDetails,
+  IbexRouteCapabilitiesQuery,
+  IbexRouteCapabilitiesResponse,
+  IbexRouteQuoteRequest,
+  IbexRouteQuoteResponse,
+  IbexRouteStatusResponse,
   IbexSafeEnableRecoveryOperation,
   IbexSafeExecuteRequest,
   IbexSafeExecuteResponse,
@@ -682,6 +687,46 @@ export class IbexSdk {
       this.authenticatedJsonFetch(path, token, { method: "GET" }),
     );
     return payload as IbexSwapQuoteResponse;
+  }
+
+  // --- Unified Route Engine ---
+
+  async getRouteCapabilities(query: IbexRouteCapabilitiesQuery): Promise<IbexRouteCapabilitiesResponse> {
+    const path = this.buildPathWithQuery("/v1.2/safes/routes/capabilities", query as unknown as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexRouteCapabilitiesResponse;
+  }
+
+  async getRouteQuote(payload: IbexRouteQuoteRequest): Promise<IbexRouteQuoteResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/safes/routes/quote", token, {
+        method: "POST",
+        body: payload,
+      }),
+    );
+    return response as IbexRouteQuoteResponse;
+  }
+
+  async getRouteStatus(routeId: string): Promise<IbexRouteStatusResponse> {
+    const encoded = encodeURIComponent(routeId);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(`/v1.2/safes/routes/${encoded}/status`, token, { method: "GET" }),
+    );
+    return payload as IbexRouteStatusResponse;
+  }
+
+  async routeFromQuote(
+    safeAddress: string,
+    routeId: string,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "ROUTE_FROM_QUOTE", quoteId: routeId }],
+      ...options,
+    });
   }
 
   async swapFromQuote(
