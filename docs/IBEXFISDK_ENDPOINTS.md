@@ -29,6 +29,7 @@ The SDK currently integrates:
   - cancel recovery
   - swap from quote
   - route from quote (unified route engine)
+  - Hyperliquid operations (deposit, enter vault, withdraw vault, withdraw)
 - Swap quote (get DEX quotes from COWSWAP / 1INCH)
 - Unified route engine (capabilities, quote, status for swap + bridge)
 - SEPA resources:
@@ -147,6 +148,10 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `getRouteQuote(payload)` | `POST` | `/v1.2/safes/routes/quote` |
 | `getRouteStatus(routeId)` | `GET` | `/v1.2/safes/routes/:routeId/status` |
 | `routeFromQuote(safeAddress, routeId, options?)` | `POST` | `/v1.2/safes/operations` |
+| `hyperliquidDeposit(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
+| `hyperliquidEnterVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
+| `hyperliquidWithdrawVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
+| `hyperliquidWithdraw(safeAddress, to, amount, options?)` | `POST` | `/v1.2/safes/operations` |
 
 ## Detailed Endpoint Usage
 
@@ -1990,6 +1995,128 @@ The SDK supports the new route engine endpoints and operation type `ROUTE_FROM_Q
   - Use `executeSafeOperations()` afterwards with the signed WebAuthn credential.
 
 For complete end-to-end usage examples (capabilities -> quote -> routeFromQuote -> execute -> status polling), see `docs/IBEXFISDK_EXAMPLES.md`.
+
+### 14) Hyperliquid
+
+Hyperliquid operations are **server-side post-execution**: after the Safe operation is executed on-chain, the IBEx server calls the Hyperliquid API using server-side credentials and configured vault/bridge routing. These operations are **not supported in batch mode**.
+
+All four methods follow the standard two-step Safe operations flow (prepare → WebAuthn sign → execute).
+
+### `hyperliquidDeposit(safeAddress, amount, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `HYPERLIQUID_DEPOSIT` operation
+- Purpose: deposit USDC to Hyperliquid via the configured bridge contract on the target chain
+- Parameters:
+  - `safeAddress: string` (required)
+  - `amount: number` (required, USDC amount to deposit)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  // Step 1: Prepare the deposit
+  const prepare = await sdk.hyperliquidDeposit(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    100,
+    { chainId: 421614 }
+  );
+
+  // Step 2: Sign with passkey
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  // Step 3: Execute on-chain (then server deposits to Hyperliquid)
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Deposit initiated:", result.userOpHash);
+  ```
+
+### `hyperliquidEnterVault(safeAddress, amount, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `HYPERLIQUID_ENTER_VAULT` operation
+- Purpose: enter a Hyperliquid vault with the specified amount (server-side vault routing)
+- Parameters:
+  - `safeAddress: string` (required)
+  - `amount: number` (required, amount to allocate to the vault)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  const prepare = await sdk.hyperliquidEnterVault(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    50,
+    { chainId: 421614 }
+  );
+
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Entered vault:", result.userOpHash);
+  ```
+
+### `hyperliquidWithdrawVault(safeAddress, amount, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `HYPERLIQUID_WITHDRAW_VAULT` operation
+- Purpose: withdraw funds from a Hyperliquid vault
+- Parameters:
+  - `safeAddress: string` (required)
+  - `amount: number` (required, amount to withdraw from the vault)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  const prepare = await sdk.hyperliquidWithdrawVault(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    25,
+    { chainId: 421614 }
+  );
+
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Vault withdrawal:", result.userOpHash);
+  ```
+
+### `hyperliquidWithdraw(safeAddress, to, amount, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `HYPERLIQUID_WITHDRAW` operation
+- Purpose: withdraw funds from Hyperliquid to a specified wallet address
+- Parameters:
+  - `safeAddress: string` (required)
+  - `to: string` (required, destination wallet address `0x...`)
+  - `amount: number` (required, amount to withdraw)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  const prepare = await sdk.hyperliquidWithdraw(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    "0x0795239e54A9b6f97413cA84688f7a93b9A0640e",
+    100,
+    { chainId: 421614 }
+  );
+
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Withdrawal initiated:", result.userOpHash);
+  ```
+- Notes:
+  - Unlike the other Hyperliquid operations, this one requires a destination wallet address (`to`)
+  - The server calls `WITHDRAW_WALLET` on the Hyperliquid API after on-chain execution
 
 ## Session Lifecycle and Retry Behavior
 

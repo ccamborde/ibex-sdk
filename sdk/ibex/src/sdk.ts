@@ -742,6 +742,57 @@ export class IbexSdk {
     });
   }
 
+  // --- Hyperliquid ---
+
+  async hyperliquidDeposit(
+    safeAddress: string,
+    amount: number,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "HYPERLIQUID_DEPOSIT", hyperliquidData: { action: "DEPOSIT", amount } }],
+      ...options,
+    });
+  }
+
+  async hyperliquidEnterVault(
+    safeAddress: string,
+    amount: number,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "HYPERLIQUID_ENTER_VAULT", hyperliquidData: { action: "ENTER_VAULT", amount } }],
+      ...options,
+    });
+  }
+
+  async hyperliquidWithdrawVault(
+    safeAddress: string,
+    amount: number,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "HYPERLIQUID_WITHDRAW_VAULT", hyperliquidData: { action: "WITHDRAW", amount } }],
+      ...options,
+    });
+  }
+
+  async hyperliquidWithdraw(
+    safeAddress: string,
+    to: string,
+    amount: number,
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "HYPERLIQUID_WITHDRAW", hyperliquidData: { action: "WITHDRAW_WALLET", to, amount } }],
+      ...options,
+    });
+  }
+
   private async jsonFetch(path: string, options: JsonRequestOptions = {}): Promise<JsonObject> {
     const meta = await this.jsonFetchWithMeta(path, options);
     return meta.payload;

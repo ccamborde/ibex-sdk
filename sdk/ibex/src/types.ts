@@ -762,7 +762,11 @@ export type IbexSafeOperationType =
   | "AAVE_WITHDRAW"
   | "ADD_OWNER"
   | "REMOVE_OWNER"
-  | "CHANGE_THRESHOLD";
+  | "CHANGE_THRESHOLD"
+  | "HYPERLIQUID_DEPOSIT"
+  | "HYPERLIQUID_ENTER_VAULT"
+  | "HYPERLIQUID_WITHDRAW_VAULT"
+  | "HYPERLIQUID_WITHDRAW";
 
 export type IbexSafeSignMessageOperation = {
   type: "SIGN_MESSAGE";
@@ -793,12 +797,36 @@ export type IbexRouteFromQuoteOperation = {
   quoteId: string;
 };
 
+export type IbexHyperliquidDepositOperation = {
+  type: "HYPERLIQUID_DEPOSIT";
+  hyperliquidData: { action: "DEPOSIT"; amount: number };
+};
+
+export type IbexHyperliquidEnterVaultOperation = {
+  type: "HYPERLIQUID_ENTER_VAULT";
+  hyperliquidData: { action: "ENTER_VAULT"; amount: number };
+};
+
+export type IbexHyperliquidWithdrawVaultOperation = {
+  type: "HYPERLIQUID_WITHDRAW_VAULT";
+  hyperliquidData: { action: "WITHDRAW"; amount: number };
+};
+
+export type IbexHyperliquidWithdrawOperation = {
+  type: "HYPERLIQUID_WITHDRAW";
+  hyperliquidData: { action: "WITHDRAW_WALLET"; to: string; amount: number };
+};
+
 export type IbexSafeOperation =
   | IbexSafeSignMessageOperation
   | IbexSafeEnableRecoveryOperation
   | IbexSafeCancelRecoveryOperation
   | IbexSwapFromQuoteOperation
   | IbexRouteFromQuoteOperation
+  | IbexHyperliquidDepositOperation
+  | IbexHyperliquidEnterVaultOperation
+  | IbexHyperliquidWithdrawVaultOperation
+  | IbexHyperliquidWithdrawOperation
   | (JsonObject & { type: string });
 
 export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";
