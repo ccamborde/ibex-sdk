@@ -966,3 +966,126 @@ export type IbexRouteStatusResponse = {
   sourceUserOpHash?: string | null;
   transactionHash?: string | null;
 } & JsonObject;
+
+// --- WebSocket / Realtime ---
+
+export type IbexWsReconnectPolicy = {
+  enabled?: boolean;
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+};
+
+export type IbexWsConfig = {
+  apiBaseUrl: string;
+  blockchainId?: string;
+  clientName?: string;
+  getToken: () => string | null;
+  onTokenExpired?: () => void;
+  reconnect?: boolean | IbexWsReconnectPolicy;
+  wsImpl?: { new (url: string | URL, protocols?: string | string[]): WebSocket };
+};
+
+export type IbexWsAuthSuccess = {
+  safeAddress: string;
+  message?: string;
+};
+
+export type IbexWsAuthError = {
+  message: string;
+  error_code?: string;
+  existingConnectionId?: string;
+  context?: string;
+};
+
+export type IbexWsBalanceUpdate = {
+  address: string;
+  balance: string;
+  updated_at: string;
+};
+
+export type IbexWsNewTransaction = {
+  address: string;
+  newTransaction: {
+    hash: string;
+    blockNumber?: number;
+    timestamp?: string;
+    from?: string;
+    to?: string;
+    tokenAddress?: string;
+    tokenType?: string;
+    tokenSymbol?: string;
+    value?: string;
+    direction?: string;
+  } & JsonObject;
+  recentTransactions?: JsonObject[];
+  transactionCount?: number;
+  historyLimit?: number;
+};
+
+export type IbexWsFiatBalanceUpdate = {
+  iban: string;
+  balance: string;
+  currency: string;
+  updated_at: string;
+  externalUserId?: string;
+};
+
+export type IbexWsFiatTransactionUpdate = {
+  iban: string;
+  transactionId: string;
+  event: string;
+  status: string;
+  previousStatus?: string | null;
+  amount: string;
+  currency: string;
+  externalUserId?: string;
+};
+
+export type IbexWsChainIdData = {
+  defaultChainId: number;
+  supportedChainIds: number[];
+};
+
+export type IbexWsSignalEvent = {
+  [key: string]: string;
+};
+
+export type IbexWsError = {
+  message: string;
+  context?: string;
+  error_code?: string;
+  error?: string;
+};
+
+export type IbexWsCloseEvent = {
+  code: number;
+  reason: string;
+};
+
+export type IbexWsRawMessage = {
+  type: string;
+  data: JsonObject;
+  timestamp?: string;
+};
+
+export type IbexWsEventMap = {
+  open: undefined;
+  close: IbexWsCloseEvent;
+  auth_success: IbexWsAuthSuccess;
+  auth_error: IbexWsAuthError;
+  connection_success: IbexWsAuthSuccess;
+  balance_data: IbexNormalizedBalances;
+  transaction_data: IbexNormalizedTransactions;
+  user_data: IbexNormalizedProfile;
+  balance_update: IbexWsBalanceUpdate;
+  new_transaction: IbexWsNewTransaction;
+  fiat_balance_update: IbexWsFiatBalanceUpdate;
+  fiat_transaction_update: IbexWsFiatTransactionUpdate;
+  chainid_data: IbexWsChainIdData;
+  recovery_data: IbexRecoveryStatusResponse;
+  user_iban_updated: IbexWsSignalEvent;
+  user_ky_updated: IbexWsSignalEvent;
+  error: IbexWsError;
+  raw: IbexWsRawMessage;
+};

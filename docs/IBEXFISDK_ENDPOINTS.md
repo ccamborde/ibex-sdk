@@ -37,6 +37,12 @@ The SDK currently integrates:
   - payment intent/confirmation
   - transactions list/detail
   - mandates create/list/detail/status/cancel
+- **WebSocket realtime** (`IbexRealtimeClient`):
+  - authenticated connection lifecycle (auth, reconnection, close codes)
+  - initial data burst (balance_data, transaction_data, user_data, chainid_data, recovery_data)
+  - on-demand requests (get_balance, get_transactions)
+  - push events (balance_update, new_transaction, fiat_balance_update, fiat_transaction_update, user_iban_updated, user_ky_updated)
+  - **same normalized output types** as HTTP methods (format parity)
 
 ### SDK Normalization Pattern
 
@@ -48,8 +54,15 @@ The SDK normalizes complex, nested API responses into stable, flat structures. T
 | `getMeBalances(query?)` | `IbexNormalizedBalances` | `getMeBalancesRaw(query?)` |
 | `getMeTransactions(query?)` | `IbexNormalizedTransactions` | `getMeTransactionsRaw(query?)` |
 
+| WebSocket Event | Returns (normalized) | Same type as HTTP |
+|---|---|---|
+| `balance_data` | `IbexNormalizedBalances` | `getMeBalances()` |
+| `transaction_data` | `IbexNormalizedTransactions` | `getMeTransactions()` |
+| `user_data` | `IbexNormalizedProfile` | `getMe()` |
+
 - **Normalized methods** flatten nested API structures (e.g. `crypto[chainId][walletAddress]` → flat `wallets[]` array) into typed, developer-friendly objects.
 - **Raw methods** return the untouched API response for debugging or advanced use cases.
+- **WebSocket events** produce the same normalized types as their HTTP counterparts — a `balance_data` WS event yields the same `IbexNormalizedBalances` as `getMeBalances()`. Subscribe to the `raw` event for the untouched WS payload.
 - If the API changes its internal structure, only the SDK normalizers need updating — consumer code remains stable.
 
 ## Base URL
@@ -152,6 +165,7 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `hyperliquidEnterVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
 | `hyperliquidWithdrawVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
 | `hyperliquidWithdraw(safeAddress, to, amount, options?)` | `POST` | `/v1.2/safes/operations` |
+| `createRealtimeClient(options?)` | WebSocket | `/ws` |
 
 ## Detailed Endpoint Usage
 
@@ -2118,6 +2132,180 @@ All four methods follow the standard two-step Safe operations flow (prepare → 
   - Unlike the other Hyperliquid operations, this one requires a destination wallet address (`to`)
   - The server calls `WITHDRAW_WALLET` on the Hyperliquid API after on-chain execution
 
+### 15) WebSocket Realtime
+
+The SDK provides `IbexRealtimeClient` for real-time updates over WebSocket. The WS events for balances, transactions, and user data produce the **same normalized types** as the corresponding HTTP methods — no format conversion needed on the consumer side.
+
+For the full WebSocket protocol specification (message formats, close codes, chain resolution), see `docs/IBEXFIAPI_WEBSOCKET.md`.
+
+### `createRealtimeClient(options?)`
+
+- Creates an `IbexRealtimeClient` pre-wired to the SDK's `apiBaseUrl` and stored token.
+- Available on `IbexSdk` instance or as standalone `createRealtimeClient(config)`.
+- Parameters (when called on SDK instance):
+  - `blockchainId?: string` — chain filter for WS connection (query param on `/ws`)
+  - `clientName?: string` — label sent in auth message
+  - `reconnect?: boolean | { enabled?, maxAttempts?, baseDelayMs?, maxDelayMs? }` — reconnection policy (default: enabled, 10 attempts, exponential backoff)
+  - `wsImpl?` — custom WebSocket constructor (for Node.js environments)
+- Returns: `IbexRealtimeClient`
+
+### `IbexRealtimeClient` API
+
+| Method / Property | Description |
+|---|---|
+| `connect()` | Open the WebSocket and send auth message |
+| `disconnect()` | Close the WebSocket and stop reconnection |
+| `connected` (getter) | `true` if the socket is open |
+| `authenticated` (getter) | `true` after `auth_success` is received |
+| `on(event, handler)` | Subscribe to typed events; returns unsubscribe function |
+| `requestBalances(requestId?)` | Send `get_balance` message (response via `balance_data` event) |
+| `requestTransactions(params?, requestId?)` | Send `get_transactions` message (response via `transaction_data` event) |
+
+### Events
+
+#### Normalized events (same output types as HTTP)
+
+| Event | Emitted type | HTTP equivalent |
+|---|---|---|
+| `balance_data` | `IbexNormalizedBalances` | `getMeBalances()` |
+| `transaction_data` | `IbexNormalizedTransactions` | `getMeTransactions()` |
+| `user_data` | `IbexNormalizedProfile` | `getMe()` |
+
+These events are emitted both during the initial data burst (after auth) and as responses to `requestBalances()` / `requestTransactions()`.
+
+#### Auth and session events
+
+| Event | Emitted type | Description |
+|---|---|---|
+| `auth_success` | `{ safeAddress, message? }` | Authentication succeeded |
+| `auth_error` | `{ message, error_code?, context? }` | Authentication failed (connection closes after) |
+| `connection_success` | `{ safeAddress, message? }` | Legacy compatibility event (same as auth_success) |
+
+#### Push events (deltas from upstream)
+
+| Event | Emitted type | Description |
+|---|---|---|
+| `balance_update` | `{ address, balance, updated_at }` | Crypto balance changed |
+| `new_transaction` | `{ address, newTransaction, recentTransactions?, ... }` | New crypto transaction detected |
+| `fiat_balance_update` | `{ iban, balance, currency, updated_at }` | Fiat balance changed |
+| `fiat_transaction_update` | `{ iban, transactionId, event, status, amount, currency }` | Fiat transaction event |
+| `user_iban_updated` | `{ iban: "changed" }` | IBAN status signal (refresh signal) |
+| `user_ky_updated` | `{ ky: "changed" }` | KYC status signal (refresh signal) |
+
+#### Other events
+
+| Event | Emitted type | Description |
+|---|---|---|
+| `chainid_data` | `{ defaultChainId, supportedChainIds }` | Chain configuration |
+| `recovery_data` | `IbexRecoveryStatusResponse` | Recovery status for the session Safe |
+| `error` | `{ message, context?, error_code? }` | Server-side error |
+| `open` | `undefined` | WebSocket opened |
+| `close` | `{ code, reason }` | WebSocket closed |
+| `raw` | `{ type, data, timestamp? }` | Raw JSON of every server message (for debugging) |
+
+### Close codes
+
+| Code | Meaning | SDK behavior |
+|---|---|---|
+| `4001` | Auth timeout (30s) | Reconnect (if enabled) |
+| `4002` | Auth failed / token expired | Calls `onTokenExpired` callback (SDK auto-refreshes) |
+| `4003` | Duplicate session | No reconnect (close existing session first) |
+| `1006` / `1011` | Network / server error | Reconnect with exponential backoff |
+
+### Example — basic usage via SDK instance
+
+```typescript
+const sdk = createIbexSdk({ apiBaseUrl: "https://passkeys-testnet.ibex.fi" });
+await sdk.authenticateWithPasskey();
+
+const ws = sdk.createRealtimeClient({ clientName: "my-app" });
+
+ws.on("auth_success", (data) => {
+  console.log("WS authenticated, Safe:", data.safeAddress);
+});
+
+ws.on("balance_data", (balances) => {
+  // Same IbexNormalizedBalances as sdk.getMeBalances()
+  for (const wallet of balances.wallets) {
+    console.log(`Chain ${wallet.chainId}: ${wallet.tokens.length} tokens`);
+  }
+});
+
+ws.on("transaction_data", (transactions) => {
+  // Same IbexNormalizedTransactions as sdk.getMeTransactions()
+  for (const chain of transactions.chains) {
+    console.log(`Chain ${chain.chainId}: ${chain.total} transactions`);
+  }
+});
+
+ws.on("user_data", (profile) => {
+  // Same IbexNormalizedProfile as sdk.getMe()
+  console.log("User:", profile.externalUserId);
+  console.log("Wallets:", profile.wallets.length);
+});
+
+ws.on("balance_update", (update) => {
+  console.log(`Balance changed: ${update.address} → ${update.balance}`);
+});
+
+ws.on("new_transaction", (tx) => {
+  console.log(`New tx: ${tx.newTransaction.hash} (${tx.newTransaction.direction})`);
+});
+
+ws.on("close", (event) => {
+  if (event.code === 4003) {
+    console.warn("Duplicate session — close existing connection first");
+  }
+});
+
+ws.connect();
+
+// On-demand refresh:
+ws.requestBalances("my-request-1");
+ws.requestTransactions({ page: 1, limit: 50 }, "my-request-2");
+
+// Cleanup:
+ws.disconnect();
+```
+
+### Example — standalone usage (without IbexSdk)
+
+```typescript
+import { IbexRealtimeClient } from "ibex-sdk";
+
+const ws = new IbexRealtimeClient({
+  apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+  blockchainId: "421614",
+  clientName: "standalone-app",
+  getToken: () => localStorage.getItem("ibex_jwt"),
+  onTokenExpired: () => {
+    console.warn("Token expired — refresh and reconnect");
+  },
+  reconnect: { maxAttempts: 5, baseDelayMs: 2000 },
+});
+
+ws.on("balance_data", (balances) => {
+  console.log("Balances:", balances.wallets);
+});
+
+ws.connect();
+```
+
+### HTTP fallback pattern
+
+When WS is unavailable, fall back to HTTP methods that return the same types:
+
+```typescript
+ws.on("close", (event) => {
+  if (event.code !== 4003) {
+    // WS failed — fall back to HTTP
+    const balances = await sdk.getMeBalances();   // same IbexNormalizedBalances
+    const txs = await sdk.getMeTransactions();     // same IbexNormalizedTransactions
+    const profile = await sdk.getMe();             // same IbexNormalizedProfile
+  }
+});
+```
+
 ## Session Lifecycle and Retry Behavior
 
 - SDK stores session tokens in configured storage.
@@ -2142,6 +2330,8 @@ The following API families are not wrapped by high-level SDK methods in `sdk/ibe
 - Bitcoin PSBT/broadcast (`/v1.2/safes/bitcoin/*`)
 - signer enrollment (`POST /v1.2/auth/enroll`)
 
+Note: WebSocket realtime is now fully supported via `IbexRealtimeClient` (see section 15).
+
 ## Recommended Client Integration Order
 
 1. Initialize SDK with `apiBaseUrl` (and optional `blockchainId`).
@@ -2151,6 +2341,11 @@ The following API families are not wrapped by high-level SDK methods in `sdk/ibe
    - `balances` (same structure as `getMeBalances()`)
    - `transactions` (same structure as `getMeTransactions()`)
    - `kycStatus`, `addressbook[]`, `data` (userdata)
-4. For subsequent partial refreshes, use dedicated methods (`getMeBalances()`, `getMeTransactions()`, etc.) instead of reloading the full profile.
-5. Persist user settings via `updateMeData(...)` as needed.
-6. Let SDK auto-refresh/retry protected requests when session expires.
+4. Open a WebSocket for real-time updates:
+   - `sdk.createRealtimeClient()` → `ws.connect()`
+   - Subscribe to `balance_data`, `transaction_data`, `user_data` for the same normalized types as HTTP
+   - Subscribe to push events (`balance_update`, `new_transaction`, etc.) for incremental updates
+5. For on-demand partial refreshes, use `ws.requestBalances()` / `ws.requestTransactions()` (over WS) or `getMeBalances()` / `getMeTransactions()` (over HTTP fallback).
+6. Persist user settings via `updateMeData(...)` as needed.
+7. Let SDK auto-refresh/retry protected requests when session expires.
+8. Call `ws.disconnect()` on logout or app close.

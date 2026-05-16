@@ -1,4 +1,5 @@
 import { browserStorage } from "./storage";
+import { IbexRealtimeClient } from "./realtime";
 import type {
   IbexAddAddressBookCryptoInput,
   IbexAddressBookEntryResponse,
@@ -66,6 +67,8 @@ import type {
   IbexUpdateAddressBookEntryInput,
   IbexValidateEmailRequest,
   IbexValidateEmailResponse,
+  IbexWsConfig,
+  IbexWsReconnectPolicy,
   JsonObject,
 } from "./types";
 import {
@@ -790,6 +793,29 @@ export class IbexSdk {
       safeAddress,
       operations: [{ type: "HYPERLIQUID_WITHDRAW", hyperliquidData: { action: "WITHDRAW_WALLET", to, amount } }],
       ...options,
+    });
+  }
+
+  // --- Realtime (WebSocket) ---
+
+  createRealtimeClient(options?: {
+    blockchainId?: string;
+    clientName?: string;
+    reconnect?: boolean | IbexWsReconnectPolicy;
+    wsImpl?: IbexWsConfig["wsImpl"];
+  }): IbexRealtimeClient {
+    return new IbexRealtimeClient({
+      apiBaseUrl: this.apiBaseUrl,
+      blockchainId: options?.blockchainId ?? this.blockchainId,
+      clientName: options?.clientName,
+      getToken: () => this.getStoredToken(),
+      onTokenExpired: () => {
+        this.refreshSession().catch(() => {
+          this.clearSessionAndScopedStorage();
+        });
+      },
+      reconnect: options?.reconnect,
+      wsImpl: options?.wsImpl,
     });
   }
 
