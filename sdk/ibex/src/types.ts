@@ -747,10 +747,34 @@ export type IbexConfirmEmailRequest = {
 
 export type IbexConfirmEmailResponse = JsonObject;
 
+// --- SMS Verification ---
+
+export type IbexValidateSmsRequest = {
+  telephone: string;
+  externalUserId: string;
+  phonePolicy?: "frMobile" | "any";
+};
+
+export type IbexValidateSmsResponse = JsonObject;
+
+export type IbexConfirmSmsRequest = {
+  telephone: string;
+  code: string;
+  externalUserId: string;
+  phonePolicy?: "frMobile" | "any";
+  persistTelephoneToKyb?: boolean;
+};
+
+export type IbexConfirmSmsResponse = {
+  smsVerified?: boolean;
+  telephone?: string;
+} & JsonObject;
+
 // --- KYC Iframe ---
 
 export type IbexKycIframeRequest = {
   language?: string;
+  requireSmsVerification?: boolean;
 };
 
 export type IbexKycIframeResponse = {

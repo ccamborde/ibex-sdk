@@ -237,6 +237,34 @@ describe("IbexSdk users/me endpoints", () => {
     expect(storage.get(IBEX_EXTERNAL_USER_ID_KEY)).toBeNull();
     expect(storage.get("user-42_cached-data")).toBeNull();
   });
+
+  it("calls validateSms and confirmSms with correct URLs and bodies", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(200, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { smsVerified: true, telephone: "+33612345678" }));
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    await sdk.validateSms({ telephone: "+33612345678", externalUserId: "user-1", phonePolicy: "frMobile" });
+    await sdk.confirmSms({ telephone: "+33612345678", code: "123456", externalUserId: "user-1" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/users/me/validate-sms");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    const body0 = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(body0.telephone).toBe("+33612345678");
+    expect(body0.phonePolicy).toBe("frMobile");
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/users/me/confirm-sms");
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
+    const body1 = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+    expect(body1.code).toBe("123456");
+  });
 });
 
 describe("IbexSdk address book endpoints", () => {

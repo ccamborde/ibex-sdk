@@ -16,6 +16,9 @@ Supported flows:
 - Lending catalog (`GET /v1.2/users/me/lending`)
 - Token catalog (`GET /v1.2/chain/tokens`)
 - DeFi vaults catalog (`GET /v1.2/safes/vaults`)
+- Email verification (`POST /v1.2/users/me/validate-email`, `POST /v1.2/users/me/confirm-email`)
+- SMS verification (`POST /v1.2/users/me/validate-sms`, `POST /v1.2/users/me/confirm-sms`)
+- KYC/KYB iframe onboarding (`POST /v1.2/auth/iframe`) with optional `requireSmsVerification`
 - Unified address book (`/v1.2/users/me/addressbook*`)
 - SEPA IBAN add/list (`POST /v1.2/sepa/iban/add`, `GET /v1.2/sepa/iban`)
 - SEPA payment intent/confirm (`POST /v1.2/sepa/payments`, `PUT /v1.2/sepa/payments`)
@@ -52,6 +55,8 @@ const tokens = await ibex.getMeTokens({ blockchainId: "421614" });
 const lending = await ibex.getMeLending({ userScoped: true });
 const chainTokens = await ibex.getChainTokens({ blockchainId: "421614" });
 const vaults = await ibex.getVaults({ provider: "MORPHO", blockchainId: "8453" });
+await ibex.validateSms({ telephone: "+33612345678", externalUserId: "user-1" });
+await ibex.confirmSms({ telephone: "+33612345678", code: "123456", externalUserId: "user-1" });
 const addressBook = await ibex.getMeAddressBook();
 const sepaIbans = await ibex.getSepaIbans();
 const sepaTransactions = await ibex.getSepaTransactions({ page: 1, limit: 20 });

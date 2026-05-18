@@ -2,6 +2,12 @@
 
 ## Changelog
 
+- **2026-05-18** `create` `POST /v1.2/users/me/validate-sms` — new SMS verification endpoint (send code)
+- **2026-05-18** `create` `POST /v1.2/users/me/confirm-sms` — new SMS verification endpoint (confirm code)
+- **2026-05-18** `create` `POST /api/admin/devtools/ky/sms-verified` — new DevTools endpoint to manually set SMS verification data
+- **2026-05-18** `modify` `POST /v1.2/auth/iframe` — added `requireSmsVerification` body parameter
+- **2026-05-18** `modify` `GET /v1.2/users/me/tokens` — added `iconUrl`, `type`, `secondaryAddress` fields to response schema and documentation
+- **2026-05-18** `modify` structure — merged Config, Pools, Lending, Swaps, Checks and Admin sections into a single **Administration & Configuration API** chapter with domain sub-sections
 - **2026-05-18** `modify` `GET /v1.2/users/me/lending` — merged pools into lending; added `?userScoped=true` query param to scope results to user's chains (replaces former `/me/pools`)
 - **2026-05-18** `modify` `GET /v1.2/users/me/balances` — clarified ownership enforcement and scoping wording
 - **2026-05-18** `modify` `GET /v1.2/users/me/transactions` — clarified ownership enforcement and scoping wording
@@ -719,7 +725,9 @@ Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `
 **`POST /v1.2/auth/iframe`**
 
 - Purpose: start a KYC session and return iframe/redirect URLs.
-- Body (optional): `{ "language": "en" }` (or other language code).
+- Body (optional): `{ "language": "en", "requireSmsVerification": true }`.
+  - `language` (string): UI language code.
+  - `requireSmsVerification` (boolean): if `true`, SMS verification of phone number will be required before KYC/KYB submission.
 - Response (200): usually includes `chatbotURL`, `sessionId`, `chatbotFullURL`, `alreadySent`.
 
 **`POST /v1.2/auth/enroll`**
@@ -748,6 +756,8 @@ Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `
 | GET | `/v1.2/users/kyc/status` | JWT | **v1.2** |
 | POST | `/v1.2/users/me/validate-email` | JWT | **v1.2** |
 | POST | `/v1.2/users/me/confirm-email` | JWT | **v1.2** |
+| POST | `/v1.2/users/me/validate-sms` | JWT | **v1.2** |
+| POST | `/v1.2/users/me/confirm-sms` | JWT | **v1.2** |
 | GET/POST/PUT/DELETE | `/v1.2/users/me/addressbook` (+ `/:id`, sub-routes crypto / IBAN) | JWT | **v1.2** (unified contacts — IBEXSAFE `addressbook.entry.*`) |
 | GET | `/v1.2/users/me/chainid` | JWT | **v1.2** |
 | GET | `/v1.2/users/me/address` | JWT | **v1.2** |
@@ -1305,11 +1315,19 @@ Returns the tokens the authenticated user has interacted with (based on transact
 
 **Response (200):**
 
-Typical token fields include:
+Token object fields:
 
-- `address`, `symbol`, `name`, `decimals`
-- `blockchainId` / `chainId`
-- optional metadata such as `secondaryAddress`, `active`, `iconUrl`, `type`, timestamps
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | string | Primary smart-contract address of the token. |
+| `secondaryAddress` | string \| null | Alternate or updated contract address for the same token (e.g. after a token migration). `null` when not applicable. |
+| `symbol` | string | Ticker symbol (e.g. `EURe`, `USDC`). |
+| `name` | string | Human-readable token name. |
+| `decimals` | number | Number of decimals used by the token contract. |
+| `blockchainId` | string | Chain identifier (e.g. `"421614"`). |
+| `active` | boolean | Whether the token is currently active on the platform. |
+| `iconUrl` | string \| null | URL to the token icon image hosted by the platform (e.g. `https://app.ibex.fi/images/tokens/eure.png`). `null` when no icon is available. |
+| `type` | string \| null | Token classification in uppercase. Possible values: `STABLECOIN_EUR`, `STABLECOIN_USD`, `STABLECOIN_GBP`, `STABLECOIN_CHF`, `GAS`, `BLOCKCHAIN`, `WRAPPED`, `AAVE`, `DAO`, `MEMECOIN`, `LOCAL`, `FAKE`, `TEST`, `OTHER`. `null` when unclassified. |
 
 **Error responses:**
 
@@ -1321,11 +1339,14 @@ Typical token fields include:
 [
   {
     "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+    "secondaryAddress": null,
     "symbol": "EURe",
     "name": "Monerium EUR emoney",
     "decimals": 18,
     "blockchainId": "421614",
-    "active": true
+    "active": true,
+    "iconUrl": "https://app.ibex.fi/images/tokens/eure.png",
+    "type": "STABLECOIN_EUR"
   }
 ]
 ```
@@ -1338,9 +1359,14 @@ Typical token fields include:
     "blockchainId": "100",
     "tokens": [
       {
-        "address": "0x...",
-        "symbol": "xDAI",
-        "decimals": 18
+        "address": "0xcb444e90d8198415266c6a2724b7900fb12fc56e",
+        "secondaryAddress": null,
+        "symbol": "EURe",
+        "name": "Monerium EUR emoney",
+        "decimals": 18,
+        "active": true,
+        "iconUrl": "https://app.ibex.fi/images/tokens/eure.png",
+        "type": "STABLECOIN_EUR"
       }
     ]
   },
@@ -1349,8 +1375,13 @@ Typical token fields include:
     "tokens": [
       {
         "address": "0x420ca0f9b9b604ce0fd9c18ef134c705e5fa3430",
+        "secondaryAddress": null,
         "symbol": "EURe",
-        "decimals": 18
+        "name": "Monerium EUR emoney",
+        "decimals": 18,
+        "active": true,
+        "iconUrl": "https://app.ibex.fi/images/tokens/eure.png",
+        "type": "STABLECOIN_EUR"
       }
     ]
   }
@@ -1750,6 +1781,50 @@ Confirms the email verification code through IBEX Safe.
 
 ---
 
+### POST /v1.2/users/me/validate-sms
+
+Sends a 6-digit SMS verification code to a phone number. Code expires after 1 hour. Max 5 attempts per hour.
+
+**Headers:** JWT.
+
+**Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `telephone` | string | Yes | Phone number (E.164 or local format, normalized server-side) |
+| `externalUserId` | string | Yes | External user identifier |
+| `phonePolicy` | string | No | Validation policy: `"frMobile"` (French mobile only) or `"any"` (default) |
+
+**Response (200):** Always `200` for security reasons. When SMS sending is disabled for the tenant (non-production config), the response includes `{ "code": "..." }` for testing.
+
+---
+
+### POST /v1.2/users/me/confirm-sms
+
+Confirms the SMS verification code sent to the phone number. On success, stores the verified phone number and timestamp in user data.
+
+**Headers:** JWT.
+
+**Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `telephone` | string | Yes | Phone number (same as sent to validate-sms) |
+| `code` | string | Yes | 6-digit verification code received by SMS |
+| `externalUserId` | string | Yes | External user identifier |
+| `phonePolicy` | string | No | Validation policy (must match the one used in validate-sms) |
+| `persistTelephoneToKyb` | boolean | No | If `true`, also persists the verified phone number into the KYB `telephone` field |
+
+**Response (200):**
+
+```json
+{ "smsVerified": true, "telephone": "+33612345678" }
+```
+
+**Error Responses:** `400` invalid/expired code or invalid phone number.
+
+---
+
 ## IBAN (provider-agnostic)
 
 | Method | Path | Auth | Notes |
@@ -2056,21 +2131,32 @@ X-API-Key: <key>
 
 ---
 
-## Config (`api`)
+## Administration & Configuration API
 
-- Endpoints under `/api/v1.2/config/*` require `X-Blockchain-Id` (or `?blockchainId=`). Unless stated otherwise, responses should include `blockchainId` in returned objects when applicable.
+This section groups all endpoints under `/api/…` — blockchain configuration, pool/lending/swap management, and admin/DevTools tooling.
 
-### GET `/api/v1.2/config/addresses`
+| Auth model | Routes | Description |
+|------------|--------|-------------|
+| **API_KEY** (`x-api-key`) | `/api/v1.2/config/*`, `/api/v1.2/pools`, `/api/v1.2/lending`, `/api/v1.2/check-transaction`, `/api/v1.2/swap/*` | Tenant configuration & monitoring |
+| **HTTP Basic / admin session** | `/api/admin/*` | Admin UI, DevTools (KY, SEPA topup, crypto faucet) |
+
+---
+
+### Config
+
+Endpoints under `/api/v1.2/config/*` require `X-Blockchain-Id` (or `?blockchainId=`). Unless stated otherwise, responses should include `blockchainId` in returned objects when applicable.
+
+#### GET `/api/v1.2/config/addresses`
 - Response: array of monitored addresses (scoped to `blockchainId`)
 
-### POST `/api/v1.2/config/addresses`
+#### POST `/api/v1.2/config/addresses`
 - Body: `{ address, issuer?, ibexid? }`
 - Response: `{ message, address }` (address created for the selected `blockchainId`)
 
-### DELETE `/api/v1.2/config/addresses/:id`
+#### DELETE `/api/v1.2/config/addresses/:id`
 - Response: `{ message }`
 
-### GET `/api/v1.2/config/tokens`
+#### GET `/api/v1.2/config/tokens`
 - Response: `Token[]` (scoped to `blockchainId`)
   - Each item includes optional `secondaryAddress` (alternate/updated token address if applicable) and `active` (boolean)
   - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
@@ -2095,124 +2181,124 @@ Example response:
 ]
 ```
 
-### GET `/api/v1.2/config/tokens/symbol/:symbol`
+#### GET `/api/v1.2/config/tokens/symbol/:symbol`
 - Response: same as above, filtered by `Token.symbol` (case-insensitive)
   - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
 
-### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
+#### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
 - Response: same as above, filtered by `Token.blockchainId`
   - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
 
-### GET `/api/v1.2/config/tokens/address/:address`
+#### GET `/api/v1.2/config/tokens/address/:address`
 - Response: same as above, filtered by primary `Token.address` (lowercased)
   - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
 
-### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
+#### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
 - Response: same as above, filtered by `Token.secondaryAddress` (lowercased)
   - Header `X-Blockchain-Id` supported to scope results (e.g., `421614`)
 
-### POST `/api/v1.2/config/tokens`
+#### POST `/api/v1.2/config/tokens`
 - Body: `{ address, symbol, name?, decimals? }`
 - Response: `{ message, token: Token }`
 
-### PUT `/api/v1.2/config/tokens/:id`
+#### PUT `/api/v1.2/config/tokens/:id`
 - Body: `{ symbol?, name?, decimals?, active? }`
 - Response: `{ message, token: Token }`
 
-### DELETE `/api/v1.2/config/tokens/:id`
+#### DELETE `/api/v1.2/config/tokens/:id`
 - Response: `{ message }`
 
-## Config Tokens (`api`)
+### Config Tokens
 
 Endpoints under `/api/v1.2/config/tokens/*` provide enhanced token listing with automatic grouping by `blockchainId` when the `X-Blockchain-Id` header is not provided.
 
-### Behavior
+#### Behavior
 - **With `X-Blockchain-Id` header**: Returns a flat array of tokens for the specified blockchain (same as the per-chain flat list without grouping)
 - **Without `X-Blockchain-Id` header**: Returns tokens grouped by `blockchainId` in the format `[{ blockchainId, tokens: [...] }]`
 - **Token type**: The `type` field is returned in uppercase (e.g., `STABLECOIN_EUR`, `STABLECOIN_USD`, `OTHER`, `DAO`, `GAS`, `MEMECOIN`, `FAKE`, `BLOCKCHAIN`, `LOCAL`, `AAVE`, `WRAPPED`, `TEST`)
 
-### GET `/api/v1.2/config/tokens`
+#### GET `/api/v1.2/config/tokens`
 - Response format depends on header presence:
   - **With header**: `Token[]` (flat array, scoped to `blockchainId`)
   - **Without header**: `[{ blockchainId: string, tokens: Token[] }]` (grouped by blockchainId)
 
-### GET `/api/v1.2/config/tokens/symbol/:symbol`
+#### GET `/api/v1.2/config/tokens/symbol/:symbol`
 - Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
 - Filters by `Token.symbol` (case-insensitive)
 
-### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
+#### GET `/api/v1.2/config/tokens/blockchain/:blockchainId`
 - Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
 - Filters by `Token.blockchainId` (path parameter)
 - If `X-Blockchain-Id` header is provided, it must match the path parameter
 
-### GET `/api/v1.2/config/tokens/address/:address`
+#### GET `/api/v1.2/config/tokens/address/:address`
 - Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
 - Filters by primary `Token.address` (lowercased)
 
-### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
+#### GET `/api/v1.2/config/tokens/secondary-address/:secondaryAddress`
 - Response format depends on header presence (same behavior as `/api/v1.2/config/tokens`)
 - Filters by `Token.secondaryAddress` (lowercased)
 
-### Pools configuration
+#### Pools configuration
 
 Endpoints under `/api/v1.2/config/pools/*` manage/read monitored protocol pools. The optional header `X-Blockchain-Id` scopes results to a specific chain (e.g., `421614`).
 
-### GET `/api/v1.2/config/pools`
+#### GET `/api/v1.2/config/pools`
 - Response: list of pools with fields: `id`, `blockchainId`, `provider`, `addressesProvider`, `poolAddress`, `active`, timestamps
 - Header `X-Blockchain-Id` supported
 
-### GET `/api/v1.2/config/pools/blockchain/:blockchainId`
+#### GET `/api/v1.2/config/pools/blockchain/:blockchainId`
 - Response: same as above, filtered by `blockchainId`
 
-### GET `/api/v1.2/config/pools/provider/:provider`
+#### GET `/api/v1.2/config/pools/provider/:provider`
 - Response: same as above, filtered by `provider` (e.g., `AAVE`); supports `X-Blockchain-Id`
 
-### GET `/api/v1.2/config/pools/pool-address/:poolAddress`
+#### GET `/api/v1.2/config/pools/pool-address/:poolAddress`
 - Response: same as above, filtered by `poolAddress` (0x...); supports `X-Blockchain-Id`
 
-### GET `/api/v1.2/config/pools/addresses-provider/:addressesProvider`
+#### GET `/api/v1.2/config/pools/addresses-provider/:addressesProvider`
 - Response: same as above, filtered by `addressesProvider` (0x...); supports `X-Blockchain-Id`
 
-### GET `/api/v1.2/config/pools/active/:active`
+#### GET `/api/v1.2/config/pools/active/:active`
 - Response: same as above, filtered by `active` (true|false); supports `X-Blockchain-Id`
 
-### Lending configuration
+#### Lending configuration
 
 Endpoints under `/api/v1.2/config/lending/*` manage monitored lending pools. The optional header `X-Blockchain-Id` scopes results to a specific chain (e.g., `421614`).
 
-### GET `/api/v1.2/config/lending`
+#### GET `/api/v1.2/config/lending`
 - Response: list of lendings with fields: `id`, `address`, `blockchainId`, `acceptedTokenAddresses` (array), `active`, timestamps
 - Header `X-Blockchain-Id` supported
 
-### GET `/api/v1.2/config/lending/blockchain/:blockchainId`
+#### GET `/api/v1.2/config/lending/blockchain/:blockchainId`
 - Response: same as above, filtered by `blockchainId`
 
-### GET `/api/v1.2/config/lending/address/:address`
+#### GET `/api/v1.2/config/lending/address/:address`
 - Response: same as above, filtered by `address` (0x...); supports `X-Blockchain-Id`
 
-### GET `/api/v1.2/config/lending/active/:active`
+#### GET `/api/v1.2/config/lending/active/:active`
 - Response: same as above, filtered by `active` (true|false); supports `X-Blockchain-Id`
 
-### POST `/api/v1.2/config/lending`
+#### POST `/api/v1.2/config/lending`
 - Body: `{ address, acceptedTokenAddresses?: string[], active?: boolean }`
 - Response: `{ message, lending }`
 
-### PUT `/api/v1.2/config/lending/:id`
+#### PUT `/api/v1.2/config/lending/:id`
 - Body: any subset of `{ address, acceptedTokenAddresses, active }`
 - Response: `{ message, lending }`
 
-### DELETE `/api/v1.2/config/lending/:id`
+#### DELETE `/api/v1.2/config/lending/:id`
 - Response: `{ message }`
 
-### GET `/api/v1.2/config/walletreconcilequeue`
+#### GET `/api/v1.2/config/walletreconcilequeue`
 - Query (optional): `status`, `address`, `page`, `limit`
 - Response: `{ page, limit, total, data[] }` (scoped to `blockchainId`)
 
 ---
 
-## Pools
+### Pools
 
-### GET `/api/v1.2/pools` (auth required)
+#### GET `/api/v1.2/pools` (auth required)
 - Returns active pools for the selected `blockchainId`.
 - Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
 - Response: array of pool objects
@@ -2253,7 +2339,7 @@ Example:
 ]
 ```
 
-### GET `/api/v1.2/pools/:address` (auth required)
+#### GET `/api/v1.2/pools/:address` (auth required)
 - Goal: expose per‑provider pool balances and yields for a watched `:address`.
 - Query (optional): `includeZero=true` — include items with zero balance.
 - Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
@@ -2290,36 +2376,36 @@ Example:
 
 ---
 
-## Lending (`api`)
+### Lending
 
-### GET `/api/v1.2/lending` (auth required)
+#### GET `/api/v1.2/lending` (auth required)
 - Returns active lending entries for the selected `blockchainId`.
 - Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
 - Response: array of lending objects
 - Fields: `{ id, blockchainId, address, acceptedTokenAddresses?, active, createdAt, updatedAt }`
 
-### GET `/api/v1.2/lending/:address` (auth required)
+#### GET `/api/v1.2/lending/:address` (auth required)
 - Returns one lending entry by `address` for the selected `blockchainId`.
 - Required chain selector: header `X-Blockchain-Id: <id>` (or `?blockchainId=<id>`)
 - Response: `{ id, blockchainId, address, acceptedTokenAddresses?, active, createdAt, updatedAt }`
 
-### GET `/api/v1.2/lending/name/:name` (auth required)
+#### GET `/api/v1.2/lending/name/:name` (auth required)
 - Returns lending entries filtered by `name` (case-insensitive) on the selected `blockchainId`.
 
 ---
 
-## Checks (`api`)
+### Checks
 
-### POST `/api/v1.2/check-transaction`
+#### POST `/api/v1.2/check-transaction`
 - Purpose: verify a transaction exists and is consistent for the selected `blockchainId`.
 - Body: `{ transactionHash }`
 - Response: `{ blockchainId, exists, transaction? }`
 
 ---
 
-## Swaps (`api`)
+### Swaps
 
-### POST `/api/v1.2/swap/order/create` (auth required)
+#### POST `/api/v1.2/swap/order/create` (auth required)
 - Purpose: start tracking a CoWSwap or 1INCH order and trigger an immediate status check.
 - Body (required):
   - `safeAddress` (string, 0x…): owner address (must be a monitored address for the given chain)
@@ -2374,11 +2460,303 @@ Notes:
 - If `safeAddress` is not monitored for the provided `blockchainId`, request is rejected (400).
 - `status` is nullable on creation and set after the first CoWSwap/1INCH fetch.
 
-### GET `/api/v1.2/swap/order/:id` (auth required)
+#### GET `/api/v1.2/swap/order/:id` (auth required)
 - Purpose: fetch one tracked order by UID or by txHash.
 - Resolution logic: if `:id` matches `0x` + 64 hex → search by `txHash` (lowercased); otherwise → by `uid`.
 - Response: swap tracking fields:
   - `{ id, uid?, txHash?, blockchainId, safeAddress, provider, status?, type?, executedSell?, executedBuy?, surplus?, statusPayload?, lastCheckedAt?, createdAt, updatedAt }`
+
+---
+
+### Admin & DevTools
+
+Admin routes are under `/api/` (e.g. `/api/admin/cron/vars`, `/api/admin/cron/stats`, `/api/admin/cron/force`, etc.). Most routes require **HTTP Basic** (same credentials as the admin UI) **or** an `admin_session` cookie after `POST /api/admin/login`. Cron sub-routes may also accept a dedicated cron API key via `x-api-key`.
+
+#### DevTools — KY (IBEXSAFE proxy)
+
+These endpoints provide operational tooling around KY/KYB test flows and state management (list state, read state, force state, start KYC/KYB enrollment).
+
+| Concern | Behaviour |
+|---------|-----------|
+| **Intended usage** | For admin operations and integration testing flows. Not part of the standard end-user API surface. |
+| **Auth — browser / operator** | Same as other admin API calls: **Basic** auth and/or **admin session** cookie (after `POST /api/admin/login`). |
+| **Auth — tenant (dApp server)** | Header **`x-api-key: <Domain.apiKey>`**. The API key maps to a tenant (`rpId`) and enforces tenant scoping (see below). |
+| **Development localhost bypass** | On development deployments, all `/api/admin/devtools/*` endpoints also accept requests with explicit `rpId=localhost` (query/header `rpId` / `x-rpid` variants), without requiring admin Basic/session auth or a Domain API key. This is a local development-only bypass and forces DevTools tenant scope to `localhost`. |
+| **Scoping (Domain API key)** | Client-facing identifier is **`externalUserId`**. The API resolves internal `userId` server-side before calling IBEXSAFE. For Domain key auth, **list** responses only include KY rows whose `user_id` is linked to at least one `ExternalUser` for that `rpId`. **Read / set state / enroll** require an `externalUserId` linked to the tenant; otherwise **404**. |
+| **Tenant consistency requirement** | Do not mix tenants in the same test flow. The JWT issuer (`iss`), resolved `rpId`, `externalUserId`, and faucet source mapping must belong to the same tenant. Use hostname-form `rpId` only (for example `demobaas-prat1.ibex.fi`, **not** `https://demobaas-prat1.ibex.fi/`). |
+
+**Base URL:** same host as the public API (e.g. `https://passkeys-prat1.ibex.fi`).
+
+##### GET `/api/admin/devtools/ky/list`
+
+Paginated list of KY dossiers.
+
+**Query parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `page` | integer | `1` | Page number (≥ 1). |
+| `limit` | integer | `20` | Page size (1–100). |
+
+**Response (200):** `items[]`, `total`, `page`, `limit`, `totalPages`. Each item includes at least `user_id`, `entity_type`, `ky_state_id`, `ky_state_code`.
+
+**Domain API key:** pages are aggregated (up to 15 × 100 rows), filtered to users belonging to the resolved `rpId`, then **re-paginated** using the requested `page` / `limit` (so `total` / `totalPages` reflect the filtered set).
+
+##### GET `/api/admin/devtools/ky/state/:externalUserId`
+
+Current KY state for one `externalUserId`.
+
+**Path parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `externalUserId` | string | External user identifier (URL-encoded if needed). |
+
+**Response (200):** JSON (for example `state`, `kyStateCode`, `allowedStates`, …).
+
+**Errors:**
+- `404` if `externalUserId` is unknown or (with Domain key) not in tenant.
+- `404` outside development deployments because DevTools routes are disabled.
+
+##### POST `/api/admin/devtools/ky/state`
+
+Force KY state transition.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier whose KY state should change. |
+| `newStateId` | integer | Yes | One of: `2` (submitted), `3` (additional info), `4` (rejected), `5` (accepted), `22` (signature requested), `23` (signature received), `55` (temporary block). |
+| `entityType` | string | Conditional | Required when `newStateId=5` and entity type is missing. Allowed values: `individual`, `company`. |
+| `firstName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and first name is missing. |
+| `lastName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and last name is missing. |
+| `companyName` | string | Conditional | Required for `entityType=company` when `newStateId=5` and company name is missing. |
+
+When forcing `newStateId=5`, the endpoint forwards identity enrichment fields to IBEXSAFE to satisfy accepted-state prerequisites used by IBAN provisioning.
+
+**Response (200):** JSON (for example `success`, `fromStateId`, `toStateId`, …).
+
+**Errors:**
+- `400` invalid payload (`newStateId`, conditional identity fields when forcing `newStateId=5`).
+- `404` unknown `externalUserId` (or not in tenant with Domain key).
+- `404` outside development deployments.
+
+**Example (curl, Domain API key — development API only)**
+
+```http
+POST /api/admin/devtools/ky/state
+Host: passkeys-prat1.ibex.fi
+Content-Type: application/json
+x-api-key: <Domain.apiKey for your rpId>
+
+{"externalUserId":"YOUR_EXTERNAL_USER_ID","newStateId":5,"entityType":"individual","firstName":"John","lastName":"Doe"}
+```
+
+##### POST `/api/admin/devtools/ky/enroll`
+
+Create a KYC session through admin DevTools.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier. |
+| `language` | string | No | Preferred language (`en`, `fr`, ...). |
+| `email` | string | No | User e-mail. |
+| `trustedEmail` | boolean | No | Optional trusted flag. |
+| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
+| `data` | object | No | Additional payload. |
+
+**Response (200):** KYC response (typically includes `sessionId`, `chatbotURL`, `chatbotFullURL`, ...). **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
+
+##### POST `/api/admin/devtools/kyb/enroll`
+
+Create a KYB enrollment through admin DevTools.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier. |
+| `email` | string | Yes | Contact e-mail for KYB flow. |
+| `companyRegistrationNumber` | string | Yes | Company identifier (e.g. SIREN). |
+| `submit` | boolean | No | Not supported on this endpoint. |
+| `idDocumentPage1` | string | No | Base64 data URL of first ID page. |
+| `idDocumentPage2` | string | No | Base64 data URL of second ID page. |
+| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
+| `returnUrl` | string | No | Return URL for deferred flow. |
+
+**Response (200):** KYB session response (typically `pending_submit` or `pending_id_document` with `sessionId`/`chatbotFullURL`). **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
+
+##### POST `/api/admin/devtools/ky/sms-verified`
+
+Manually set SMS verification data for a user without sending a real SMS. Useful for testing flows that require SMS verification (`requireSmsVerification: true` on KY session).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | External user identifier. |
+| `smsVerifiedTelephone` | string | Conditional | Phone number (normalized to E.164). At least one of `smsVerifiedTelephone` or `smsVerifiedAt` is required. |
+| `smsVerifiedAt` | string | Conditional | ISO timestamp. Defaults to `now` when only `smsVerifiedTelephone` is provided. |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "kyCustomerId": 42,
+  "smsVerifiedTelephone": "+33612345678",
+  "smsVerifiedAt": "2026-05-18T15:00:00.000Z"
+}
+```
+
+**Error Responses:** `400` missing fields or invalid phone/date. `404` KY customer not found or `externalUserId` not linked to tenant.
+
+##### POST `/api/admin/devtools/sepa/topup`
+
+Development-only helper to trigger a direct SEPA payment topup without the user passkey approval flow.
+
+This endpoint:
+- only works on development deployments (otherwise returns `404 Not Found`);
+- selects one configured faucet source pair at random;
+- resolves source identity from DB;
+- calls the SEPA payments service directly and bypasses the app-level POST/PUT passkey approval flow.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `targetIban` | string | Yes | Beneficiary IBAN to top up. |
+| `targetName` | string | No | Beneficiary name (default: `IBEX User`). |
+| `amount` | string | No | Payment amount as string. |
+| `amountEur` | integer | No | Payment amount as integer EUR. If both `amount` and `amountEur` are missing, default is `1`. |
+| `channel` | string | No | `SEPA` (default) or `SEPAINSTANT`. |
+| `remittanceInfo` | string | No | Remittance information (default: `IBEX DevTools SEPA topup`). |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "source": {
+      "slot": 3,
+      "suffix": "03",
+      "sourceIban": "FR7630001007941234567890185",
+      "safeAddress": "0xAbCdEf0123456789abcdef0123456789ABCDEF01"
+    },
+    "identity": {
+      "externalUserId": "user_ext_abc123",
+      "userId": "user_internal_42",
+      "rpId": "passkeys-prat1.ibex.fi"
+    },
+    "payment": {
+      "success": true,
+      "data": {
+        "transactionId": "..."
+      }
+    }
+  }
+}
+```
+
+Possible errors:
+- `404` when not in development mode;
+- `400` when no valid faucet source slot is configured or `targetIban` is missing;
+- `404` when no identity can be resolved for configured source slots;
+- `429` when the SEPA faucet program is disabled;
+- `500` when payment call fails.
+
+##### POST `/api/admin/devtools/crypto/topup`
+
+Development-only helper to trigger a crypto faucet topup for a user wallet.
+
+Behavior notes:
+- DevTools picks one token from the configured faucet token catalog and one amount using faucet randomization rules.
+- Candidate wallets include Safe wallets on faucet chain scope and signer-derived EOA addresses.
+- If `wallet` is omitted and multiple candidates exist, the endpoint rejects (`400`) to avoid ambiguity.
+
+**Headers:** `Content-Type: application/json`
+
+**Body (JSON)**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `externalUserId` | string | Yes | Target user external identifier. |
+| `wallet` | string | No | Wallet address to top up. Required when the user has multiple eligible wallets. |
+
+**Response (200):** faucet topup result including selected wallet, token, amount, and `txHash`.
+
+Possible errors:
+- `404` when not in development mode;
+- `429` when crypto faucet program is disabled;
+- `400` when `externalUserId` is missing/invalid, when `wallet` format is invalid, or when `wallet` is required (ambiguous user wallets);
+- `404` when `externalUserId` is unknown for the current tenant or when no eligible wallet is found;
+- `500` on transfer failure.
+
+##### DevTools roundtrip test data (FIAT + CRYPTO)
+
+Use this checklist for an end-to-end "fund -> user action -> return to faucet" test.
+
+**1) Keep tenant/rpId consistent**
+- Use one tenant only for the full flow (`demobaas-prat1.ibex.fi` **or** another tenant, but never mixed).
+- Use hostname-form rpId (`demobaas-prat1.ibex.fi`), not URL form.
+
+**2) Gather user-side targets**
+- **User FIAT target:** `GET /v1.2/users/me/ibans`
+  - pick `iban`, `bic`, `holderName`.
+- **User CRYPTO target:** `GET /v1.2/users/me/address`
+  - pick `safeAddress` on target chain (for example chain `421614`).
+
+**3) Gather faucet-side source/return addresses**
+- Use explicit faucet coordinates (example currently used for demobaas-prat1/testnet flows):
+  - `tenantRpId`: `demobaas-prat1.ibex.fi`
+  - `chainId`: `421614`
+  - `faucetIban`: `FR7616748000014733062059352`
+  - `faucetBic`: `BUMDFRP2`
+  - `faucetHolderName`: `IBEX Faucet 01`
+  - `faucetWallet`: `0x0795239e54A9b6f97413cA84688f7a93b9A0640e`
+- Faucet token catalog (same chain, explicit values):
+  - `EUR-IBEX` -> `0x18e632ae0704ab92cf4f49472b583498ff5258cc` (`18`)
+  - `USD-IBEX` -> `0x5a0fc8a0d0d4aabc4506dc348d1dd9258ce78f4d` (`18`)
+  - `GBP-IBEX` -> `0xcef99a37939d4db1adbc89d4d2f62913557d592d` (`18`)
+  - `CHF-IBEX` -> `0x69ebf0518202681e27480e9cd0cdd576c8157a40` (`18`)
+  - `BTC-IBEX` -> `0xb21ef1146d0cba9d4ad0d5494731bfc0b8ef7637` (`8`)
+  - `ETH-IBEX` -> `0x12bfd5e8b232f8067976a6238f29864cb440c12d` (`18`)
+  - `XAU-IBEX` -> `0xd04041a2b7cd12dc0e34ca974cdd3afbde70c6f7` (`18`)
+  - `JPY-IBEX` -> `0x9f52564b705d2c415987cd1458efd04da165de86` (`18`)
+  - `CAD-IBEX` -> `0x551acb8977ef83849aa61aa3f823fd69029c4ac3` (`18`)
+  - `AUD-IBEX` -> `0x878fc5582e7cdf95485f36038e3f72b9b1d0f791` (`18`)
+
+**4) Recommended test tuple to record**
+
+| Field | Example source |
+|------|----------------|
+| `tenantRpId` | `demobaas-prat1.ibex.fi` |
+| `chainId` | `421614` |
+| `userExternalUserId` | JWT `sub` |
+| `userIban` | `GET /v1.2/users/me/ibans` |
+| `userBic` | `GET /v1.2/users/me/ibans` |
+| `userHolderName` | `GET /v1.2/users/me/ibans` |
+| `userWallet` | `GET /v1.2/users/me/address` |
+| `faucetIban` | `FR7616748000014733062059352` |
+| `faucetBic` | `BUMDFRP2` |
+| `faucetHolderName` | `IBEX Faucet 01` |
+| `faucetWallet` | `0x0795239e54A9b6f97413cA84688f7a93b9A0640e` |
+
+**5) Typical roundtrip sequence**
+- `POST /api/admin/devtools/sepa/topup` (`targetIban=userIban`)
+- `POST /api/admin/devtools/crypto/topup` (`externalUserId` + optional explicit `wallet`)
+- User sends FIAT back to faucet IBAN via standard `/v1.2/sepa/payments` flow
+- User sends CRYPTO back to faucet wallet via Safe operation flow
 
 ---
 
@@ -3965,276 +4343,6 @@ The other **five** routes require **`Authorization: Bearer <access_token>`** (sa
 **Response (200):** `quota`, `used`, `remaining`, `period` (signup quota service).
 
 **Errors:** **403** if not authorized for that domain’s quota.
-
----
-
-## Admin (no version prefix)
-
-Admin routes are under `/api/` (e.g. `/api/admin/cron/vars`, `/api/admin/cron/stats`, `/api/admin/cron/force`, etc.). Most routes require **HTTP Basic** (same credentials as the admin UI) **or** an `admin_session` cookie after `POST /api/admin/login`. Cron sub-routes may also accept a dedicated cron API key via `x-api-key`.
-
-### DevTools — KY (IBEXSAFE proxy)
-
-These endpoints provide operational tooling around KY/KYB test flows and state management (list state, read state, force state, start KYC/KYB enrollment).
-
-| Concern | Behaviour |
-|---------|-----------|
-| **Intended usage** | For admin operations and integration testing flows. Not part of the standard end-user API surface. |
-| **Auth — browser / operator** | Same as other admin API calls: **Basic** auth and/or **admin session** cookie (after `POST /api/admin/login`). |
-| **Auth — tenant (dApp server)** | Header **`x-api-key: <Domain.apiKey>`**. The API key maps to a tenant (`rpId`) and enforces tenant scoping (see below). |
-| **Development localhost bypass** | On development deployments, all `/api/admin/devtools/*` endpoints also accept requests with explicit `rpId=localhost` (query/header `rpId` / `x-rpid` variants), without requiring admin Basic/session auth or a Domain API key. This is a local development-only bypass and forces DevTools tenant scope to `localhost`. |
-| **Scoping (Domain API key)** | Client-facing identifier is **`externalUserId`**. The API resolves internal `userId` server-side before calling IBEXSAFE. For Domain key auth, **list** responses only include KY rows whose `user_id` is linked to at least one `ExternalUser` for that `rpId`. **Read / set state / enroll** require an `externalUserId` linked to the tenant; otherwise **404**. |
-| **Tenant consistency requirement** | Do not mix tenants in the same test flow. The JWT issuer (`iss`), resolved `rpId`, `externalUserId`, and faucet source mapping must belong to the same tenant. Use hostname-form `rpId` only (for example `demobaas-prat1.ibex.fi`, **not** `https://demobaas-prat1.ibex.fi/`). |
-
-**Base URL:** same host as the public API (e.g. `https://passkeys-prat1.ibex.fi`).
-
-#### GET `/api/admin/devtools/ky/list`
-
-Paginated list of KY dossiers (proxied from `GET /devTools/kyList`).
-
-**Query parameters**
-
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `page` | integer | `1` | Page number (≥ 1). |
-| `limit` | integer | `20` | Page size (1–100). |
-
-**Response (200)** — same general shape as IBEXSAFE (admin / unscoped): `items[]`, `total`, `page`, `limit`, `totalPages`. Each item includes at least `user_id`, `entity_type`, `ky_state_id`, `ky_state_code` (upstream field names).
-
-**Domain API key:** upstream pages are aggregated (up to 15 × 100 rows), filtered to users belonging to the resolved `rpId`, then **re-paginated** using the requested `page` / `limit` (so `total` / `totalPages` reflect the filtered set).
-
-#### GET `/api/admin/devtools/ky/state/:externalUserId`
-
-Current KY state for one `externalUserId`. The API resolves internal `userId` and then proxies to `GET /devTools/kyState/{userId}`.
-
-**Path parameters**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `externalUserId` | string | External user identifier (URL-encoded if needed). |
-
-**Response (200):** opaque JSON from IBEXSAFE (for example `state`, `kyStateCode`, `allowedStates`, …).
-
-**Errors:**
-- `404` if `externalUserId` is unknown or (with Domain key) not in tenant.
-- `404` outside development deployments because DevTools routes are disabled.
-
-#### POST `/api/admin/devtools/ky/state`
-
-Force KY state transition (proxied from `POST /devTools/kyState`).
-
-**Headers:** `Content-Type: application/json`
-
-**Body (JSON)**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `externalUserId` | string | Yes | External user identifier whose KY state should change. |
-| `newStateId` | integer | Yes | One of: `2` (submitted), `3` (additional info), `4` (rejected), `5` (accepted), `22` (signature requested), `23` (signature received), `55` (temporary block). |
-| `entityType` | string | Conditional | Required when `newStateId=5` and entity type is missing upstream. Allowed values: `individual`, `company`. |
-| `firstName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and first name is missing upstream. |
-| `lastName` | string | Conditional | Required for `entityType=individual` when `newStateId=5` and last name is missing upstream. |
-| `companyName` | string | Conditional | Required for `entityType=company` when `newStateId=5` and company name is missing upstream. |
-
-When forcing `newStateId=5`, the endpoint forwards identity enrichment fields to IBEXSAFE to satisfy accepted-state prerequisites used by IBAN provisioning.
-
-**Response (200):** upstream JSON (for example `success`, `fromStateId`, `toStateId`, …).
-
-**Errors:**
-- `400` invalid payload (`newStateId`, conditional identity fields when forcing `newStateId=5`).
-- `404` unknown `externalUserId` (or not in tenant with Domain key).
-- `404` outside development deployments.
-
-**Example (curl, Domain API key — development API only)**
-
-```http
-POST /api/admin/devtools/ky/state
-Host: passkeys-prat1.ibex.fi
-Content-Type: application/json
-x-api-key: <Domain.apiKey for your rpId>
-
-{"externalUserId":"YOUR_EXTERNAL_USER_ID","newStateId":5,"entityType":"individual","firstName":"John","lastName":"Doe"}
-```
-
-#### POST `/api/admin/devtools/ky/enroll`
-
-Create a KYC session through admin DevTools (proxied to upstream `POST /ky`).
-
-**Headers:** `Content-Type: application/json`
-
-**Body (JSON)**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `externalUserId` | string | Yes | External user identifier; API resolves internal `userId` server-side. |
-| `language` | string | No | Preferred language (`en`, `fr`, ...). |
-| `email` | string | No | User e-mail forwarded upstream. |
-| `trustedEmail` | boolean | No | Optional trusted flag. |
-| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
-| `data` | object | No | Additional payload forwarded upstream. |
-
-**Response (200):** upstream KYC response (typically includes `sessionId`, `chatbotURL`, `chatbotFullURL`, ...). **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
-
-#### POST `/api/admin/devtools/kyb/enroll`
-
-Create a KYB enrollment through admin DevTools (proxied to upstream `POST /ky/enroll`).
-
-**Headers:** `Content-Type: application/json`
-
-**Body (JSON)**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `externalUserId` | string | Yes | External user identifier; API resolves internal `userId` server-side. |
-| `email` | string | Yes | Contact e-mail for KYB flow. |
-| `companyRegistrationNumber` | string | Yes | Company identifier (e.g. SIREN). |
-| `submit` | boolean | No | Not supported on this endpoint. If set to `true`, upstream may return `400`. |
-| `idDocumentPage1` | string | No | Base64 data URL of first ID page. |
-| `idDocumentPage2` | string | No | Base64 data URL of second ID page. |
-| `rpId` | string | No | Forwarded as provided unless Domain API key auth is used (then forced to tenant `rpId`). |
-| `returnUrl` | string | No | Return URL for deferred flow. |
-
-**Response (200):** upstream KYB session response (typically `pending_submit` or `pending_id_document` with `sessionId`/`chatbotFullURL`). Final submission is completed through the ID-document session flow. **404** if `externalUserId` is not found (or not linked to tenant with Domain API key).
-
-#### POST `/api/admin/devtools/sepa/topup`
-
-Development-only helper to trigger a direct SEPA payment topup without the user passkey approval flow.
-
-This endpoint:
-- only works on development deployments (otherwise returns `404 Not Found`);
-- selects one configured faucet source pair at random from server-side faucet slot configuration;
-- resolves source identity from DB (`Safe -> Signer -> ExternalUser`);
-- calls IBEX SEPA `POST /payments` directly (same upstream used by `/v1.2/sepa/payments`) and bypasses the app-level POST/PUT passkey approval flow.
-- for slot identity, if a dedicated source identity is configured for the selected slot it takes precedence; otherwise identity is resolved from the slot Safe address in DB.
-
-**Headers:** `Content-Type: application/json`
-
-**Body (JSON)**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `targetIban` | string | Yes | Beneficiary IBAN to top up. |
-| `targetName` | string | No | Beneficiary name (default: `IBEX User`). |
-| `amount` | string | No | Payment amount as string. |
-| `amountEur` | integer | No | Payment amount as integer EUR. If both `amount` and `amountEur` are missing, default is `1`. |
-| `channel` | string | No | `SEPA` (default) or `SEPAINSTANT`. |
-| `remittanceInfo` | string | No | Remittance information (default: `IBEX DevTools SEPA topup`). |
-
-**Response (200)**
-
-```json
-{
-  "success": true,
-  "data": {
-    "source": {
-      "slot": 3,
-      "suffix": "03",
-      "sourceIban": "FR7630001007941234567890185",
-      "safeAddress": "0xAbCdEf0123456789abcdef0123456789ABCDEF01"
-    },
-    "identity": {
-      "externalUserId": "user_ext_abc123",
-      "userId": "user_internal_42",
-      "rpId": "passkeys-prat1.ibex.fi"
-    },
-    "payment": {
-      "success": true,
-      "data": {
-        "transactionId": "..."
-      }
-    }
-  }
-}
-```
-
-Possible errors:
-- `404` when not in development mode;
-- `400` when no valid faucet source slot is configured or `targetIban` is missing;
-- `404` when no DB identity can be resolved for configured source slots;
-- `429` when the SEPA faucet program is disabled;
-- `500` when upstream payment call fails.
-
-#### POST `/api/admin/devtools/crypto/topup`
-
-Development-only helper to trigger a crypto faucet topup for a user wallet.
-
-Behavior notes:
-- DevTools picks one token from the configured faucet token catalog and one amount using faucet randomization rules.
-- Candidate wallets include Safe wallets on faucet chain scope and signer-derived EOA addresses.
-- If `wallet` is omitted and multiple candidates exist, the endpoint rejects (`400`) to avoid ambiguity.
-
-**Headers:** `Content-Type: application/json`
-
-**Body (JSON)**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `externalUserId` | string | Yes | Target user external identifier. |
-| `wallet` | string | No | Wallet address to top up. Required when the user has multiple eligible wallets. |
-
-**Response (200):** faucet topup result including selected wallet, token, amount, and `txHash`.
-
-Possible errors:
-- `404` when not in development mode;
-- `429` when crypto faucet program is disabled;
-- `400` when `externalUserId` is missing/invalid, when `wallet` format is invalid, or when `wallet` is required (ambiguous user wallets);
-- `404` when `externalUserId` is unknown for the current tenant or when no eligible wallet is found;
-- `500` on transfer failure.
-
-#### DevTools roundtrip test data (FIAT + CRYPTO)
-
-Use this checklist for an end-to-end "fund -> user action -> return to faucet" test.
-
-**1) Keep tenant/rpId consistent**
-- Use one tenant only for the full flow (`demobaas-prat1.ibex.fi` **or** another tenant, but never mixed).
-- Use hostname-form rpId (`demobaas-prat1.ibex.fi`), not URL form.
-
-**2) Gather user-side targets**
-- **User FIAT target:** `GET /v1.2/users/me/ibans`
-  - pick `iban`, `bic`, `holderName`.
-- **User CRYPTO target:** `GET /v1.2/users/me/address`
-  - pick `safeAddress` on target chain (for example chain `421614`).
-
-**3) Gather faucet-side source/return addresses**
-- Use explicit faucet coordinates (example currently used for demobaas-prat1/testnet flows):
-  - `tenantRpId`: `demobaas-prat1.ibex.fi`
-  - `chainId`: `421614`
-  - `faucetIban`: `FR7616748000014733062059352`
-  - `faucetBic`: `BUMDFRP2`
-  - `faucetHolderName`: `IBEX Faucet 01`
-  - `faucetWallet`: `0x0795239e54A9b6f97413cA84688f7a93b9A0640e`
-- Faucet token catalog (same chain, explicit values):
-  - `EUR-IBEX` -> `0x18e632ae0704ab92cf4f49472b583498ff5258cc` (`18`)
-  - `USD-IBEX` -> `0x5a0fc8a0d0d4aabc4506dc348d1dd9258ce78f4d` (`18`)
-  - `GBP-IBEX` -> `0xcef99a37939d4db1adbc89d4d2f62913557d592d` (`18`)
-  - `CHF-IBEX` -> `0x69ebf0518202681e27480e9cd0cdd576c8157a40` (`18`)
-  - `BTC-IBEX` -> `0xb21ef1146d0cba9d4ad0d5494731bfc0b8ef7637` (`8`)
-  - `ETH-IBEX` -> `0x12bfd5e8b232f8067976a6238f29864cb440c12d` (`18`)
-  - `XAU-IBEX` -> `0xd04041a2b7cd12dc0e34ca974cdd3afbde70c6f7` (`18`)
-  - `JPY-IBEX` -> `0x9f52564b705d2c415987cd1458efd04da165de86` (`18`)
-  - `CAD-IBEX` -> `0x551acb8977ef83849aa61aa3f823fd69029c4ac3` (`18`)
-  - `AUD-IBEX` -> `0x878fc5582e7cdf95485f36038e3f72b9b1d0f791` (`18`)
-
-**4) Recommended test tuple to record**
-
-| Field | Example source |
-|------|----------------|
-| `tenantRpId` | `demobaas-prat1.ibex.fi` |
-| `chainId` | `421614` |
-| `userExternalUserId` | JWT `sub` |
-| `userIban` | `GET /v1.2/users/me/ibans` |
-| `userBic` | `GET /v1.2/users/me/ibans` |
-| `userHolderName` | `GET /v1.2/users/me/ibans` |
-| `userWallet` | `GET /v1.2/users/me/address` |
-| `faucetIban` | `FR7616748000014733062059352` |
-| `faucetBic` | `BUMDFRP2` |
-| `faucetHolderName` | `IBEX Faucet 01` |
-| `faucetWallet` | `0x0795239e54A9b6f97413cA84688f7a93b9A0640e` |
-
-**5) Typical roundtrip sequence**
-- `POST /api/admin/devtools/sepa/topup` (`targetIban=userIban`)
-- `POST /api/admin/devtools/crypto/topup` (`externalUserId` + optional explicit `wallet`)
-- User sends FIAT back to faucet IBAN via standard `/v1.2/sepa/payments` flow
-- User sends CRYPTO back to faucet wallet via Safe operation flow
 
 ---
 

@@ -21,6 +21,7 @@ The SDK currently integrates:
 - Recovery status
 - User operations tracking
 - Email verification (validate + confirm)
+- SMS verification (validate + confirm)
 - KYC/KYB iframe onboarding
 - Email recovery (public)
 - Safe operations (prepare + execute two-step flow):
@@ -138,6 +139,8 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `getMeOperations(query?)` | `GET` | `/v1.2/users/me/operations` |
 | `validateEmail(request)` | `POST` | `/v1.2/users/me/validate-email` |
 | `confirmEmail(request)` | `POST` | `/v1.2/users/me/confirm-email` |
+| `validateSms(request)` | `POST` | `/v1.2/users/me/validate-sms` |
+| `confirmSms(request)` | `POST` | `/v1.2/users/me/confirm-sms` |
 | `getKycIframeUrl(request?)` | `POST` | `/v1.2/auth/iframe` |
 | `recoverWithEmail(request)` | `POST` | `/v1.2/auth/email/recover` |
 | `addSepaIban(payload)` | `POST` | `/v1.2/sepa/iban/add` |
@@ -1333,6 +1336,52 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   - On success, the email is associated with the user profile
   - Combined with `updateMeData({ email: "..." })` if you also want to persist the email in userdata
 
+### 7b) SMS Verification
+
+### `validateSms(request)`
+
+- Endpoint: `POST /v1.2/users/me/validate-sms`
+- Purpose: send a 6-digit SMS verification code to a phone number (step 1 of SMS onboarding)
+- Returns: `IbexValidateSmsResponse` (upstream passthrough)
+- Request body:
+  - `telephone: string` (required) — phone number (E.164 or local format, normalized server-side)
+  - `externalUserId: string` (required)
+  - `phonePolicy?: "frMobile" | "any"` — validation policy (`"any"` by default)
+- Notes:
+  - Code expires after 1 hour. Max 5 attempts per hour.
+  - Response is always `200` for security reasons. In non-production environments, the response may include `{ "code": "..." }` for testing.
+
+### `confirmSms(request)`
+
+- Endpoint: `POST /v1.2/users/me/confirm-sms`
+- Purpose: confirm the SMS verification code (step 2 of SMS onboarding)
+- Returns: `IbexConfirmSmsResponse` (`{ smsVerified, telephone }`)
+- Request body:
+  - `telephone: string` (required) — same phone number as sent to `validateSms`
+  - `code: string` (required) — 6-digit code received by SMS
+  - `externalUserId: string` (required)
+  - `phonePolicy?: "frMobile" | "any"` — must match the policy used in `validateSms`
+  - `persistTelephoneToKyb?: boolean` — if `true`, also persists the verified phone number into the KYB `telephone` field
+- Example:
+  ```typescript
+  // Step 1: Send verification code
+  await sdk.validateSms({
+    telephone: "+33612345678",
+    externalUserId: "081d27b9-e104-4bb1-8642-c2d0a6a054db",
+    phonePolicy: "frMobile"
+  });
+
+  // Step 2: User enters the code received by SMS
+  const result = await sdk.confirmSms({
+    telephone: "+33612345678",
+    code: "123456",
+    externalUserId: "081d27b9-e104-4bb1-8642-c2d0a6a054db",
+    persistTelephoneToKyb: true
+  });
+  console.log("SMS verified:", result.smsVerified, result.telephone);
+  ```
+- Error responses: `400` invalid/expired code or invalid phone number
+
 ### 8) KYC/KYB Onboarding
 
 ### `getKycIframeUrl(request?)`
@@ -1342,6 +1391,7 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 - Returns: `IbexKycIframeResponse`
 - Request body:
   - `language?: string` — language code for the KYC UI (e.g. `"en"`, `"fr"`)
+  - `requireSmsVerification?: boolean` — if `true`, the KYC flow will require SMS phone verification before proceeding
 - Example:
   ```typescript
   const kyc = await sdk.getKycIframeUrl({ language: "fr" });

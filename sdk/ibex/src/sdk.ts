@@ -39,6 +39,8 @@ import type {
   IbexChainsResponse,
   IbexConfirmEmailRequest,
   IbexConfirmEmailResponse,
+  IbexConfirmSmsRequest,
+  IbexConfirmSmsResponse,
   IbexEmailRecoverRequest,
   IbexEmailRecoverResponse,
   IbexKycIframeRequest,
@@ -69,6 +71,8 @@ import type {
   IbexUpdateAddressBookEntryInput,
   IbexValidateEmailRequest,
   IbexValidateEmailResponse,
+  IbexValidateSmsRequest,
+  IbexValidateSmsResponse,
   IbexWsConfig,
   IbexWsReconnectPolicy,
   JsonObject,
@@ -433,6 +437,28 @@ export class IbexSdk {
       }),
     );
     return payload as IbexConfirmEmailResponse;
+  }
+
+  // --- SMS Verification ---
+
+  async validateSms(request: IbexValidateSmsRequest): Promise<IbexValidateSmsResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/validate-sms", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return payload as IbexValidateSmsResponse;
+  }
+
+  async confirmSms(request: IbexConfirmSmsRequest): Promise<IbexConfirmSmsResponse> {
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/users/me/confirm-sms", token, {
+        method: "POST",
+        body: request,
+      }),
+    );
+    return payload as IbexConfirmSmsResponse;
   }
 
   // --- KYC Iframe ---
