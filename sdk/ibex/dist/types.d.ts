@@ -123,10 +123,16 @@ export type IbexTransactionsQuery = {
     limit?: number;
     includePrices?: boolean;
 };
-export type IbexUserResourceQuery = {
-    walletAddress?: string;
-    page?: number;
-    limit?: number;
+export type IbexTokensQuery = {
+    blockchainId?: string | number;
+};
+export type IbexLendingQuery = {
+    userScoped?: boolean;
+    blockchainId?: string | number;
+};
+export type IbexVaultsQuery = {
+    provider?: "AAVE" | "MORPHO" | "HYPERLIQUID";
+    blockchainId?: string | number;
 };
 export type IbexAddressBookCryptoRow = {
     chainId: string | number;
@@ -336,26 +342,44 @@ export type IbexUserTokensResponse = {
     data?: JsonObject[];
     tokens?: JsonObject[];
 } & JsonObject;
-export type IbexUserPoolsResponse = {
-    type?: string;
-    identifier?: string;
-    blockchainId?: string | number;
-    total?: number;
-    page?: number;
-    limit?: number;
-    totalPages?: number;
-    data?: JsonObject[];
+export type IbexLendingEntry = {
+    id: number;
+    blockchainId: string;
+    provider: "AAVE" | "MORPHO" | "HYPERLIQUID";
+    address: string;
+    name: string | null;
+    assetTicker: string | null;
+    assetAddress: string | null;
+    assetDecimals: number | null;
+    apy: number | null;
+    tvl: number | null;
+    isDefault: boolean;
+    acceptedTokenAddresses?: string[] | null;
+    leader?: string | null;
+    leaderCommission?: number | null;
 } & JsonObject;
-export type IbexUserLendingResponse = {
-    type?: string;
-    identifier?: string;
-    blockchainId?: string | number;
-    total?: number;
-    page?: number;
-    limit?: number;
-    totalPages?: number;
-    data?: JsonObject[];
+export type IbexUserLendingResponse = IbexLendingEntry[];
+export type IbexVaultEntry = {
+    id: number;
+    blockchainId: string;
+    provider: "AAVE" | "MORPHO" | "HYPERLIQUID";
+    poolAddress: string;
+    name: string;
+    assetTicker: string;
+    assetAddress: string;
+    assetDecimals: number;
+    apy: number | null;
+    tvl: number | null;
+    isDefault: boolean;
+    metadata?: JsonObject;
+    supplyToken?: {
+        address: string;
+        symbol: string;
+        name: string;
+        decimals: number;
+    };
 } & JsonObject;
+export type IbexVaultsResponse = IbexVaultEntry[];
 export type IbexSepaIban = {
     id?: string | number;
     iban?: string;
@@ -636,7 +660,7 @@ export type IbexEmailRecoverRequest = {
     externalUserId?: string;
 } & JsonObject;
 export type IbexEmailRecoverResponse = JsonObject;
-export type IbexSafeOperationType = "SIGN_MESSAGE" | "ENABLE_RECOVERY" | "CANCEL_RECOVERY" | "TRANSFER_TOKEN" | "TRANSFER_EURe" | "SWAP_FROM_QUOTE" | "ROUTE_FROM_QUOTE" | "AAVE_SUPPLY" | "AAVE_WITHDRAW" | "ADD_OWNER" | "REMOVE_OWNER" | "CHANGE_THRESHOLD";
+export type IbexSafeOperationType = "SIGN_MESSAGE" | "ENABLE_RECOVERY" | "CANCEL_RECOVERY" | "TRANSFER_TOKEN" | "TRANSFER_EURe" | "SWAP_FROM_QUOTE" | "ROUTE_FROM_QUOTE" | "AAVE_SUPPLY" | "AAVE_WITHDRAW" | "MORPHO_SUPPLY" | "MORPHO_WITHDRAW" | "ADD_OWNER" | "REMOVE_OWNER" | "CHANGE_THRESHOLD" | "HYPERLIQUID_DEPOSIT" | "HYPERLIQUID_ENTER_VAULT" | "HYPERLIQUID_WITHDRAW_VAULT" | "HYPERLIQUID_WITHDRAW";
 export type IbexSafeSignMessageOperation = {
     type: "SIGN_MESSAGE";
     message: string;
@@ -661,7 +685,53 @@ export type IbexRouteFromQuoteOperation = {
     type: "ROUTE_FROM_QUOTE";
     quoteId: string;
 };
-export type IbexSafeOperation = IbexSafeSignMessageOperation | IbexSafeEnableRecoveryOperation | IbexSafeCancelRecoveryOperation | IbexSwapFromQuoteOperation | IbexRouteFromQuoteOperation | (JsonObject & {
+export type IbexHyperliquidDepositOperation = {
+    type: "HYPERLIQUID_DEPOSIT";
+    hyperliquidData: {
+        action: "DEPOSIT";
+        amount: number;
+    };
+};
+export type IbexHyperliquidEnterVaultOperation = {
+    type: "HYPERLIQUID_ENTER_VAULT";
+    hyperliquidData: {
+        action: "ENTER_VAULT";
+        amount: number;
+    };
+};
+export type IbexHyperliquidWithdrawVaultOperation = {
+    type: "HYPERLIQUID_WITHDRAW_VAULT";
+    hyperliquidData: {
+        action: "WITHDRAW";
+        amount: number;
+    };
+};
+export type IbexHyperliquidWithdrawOperation = {
+    type: "HYPERLIQUID_WITHDRAW";
+    hyperliquidData: {
+        action: "WITHDRAW_WALLET";
+        to: string;
+        amount: number;
+    };
+};
+export type IbexMorphoSupplyOperation = {
+    type: "MORPHO_SUPPLY";
+    amount: string;
+    assetTicker: string;
+    tokenAddress: string;
+    decimals: number;
+    vaultAddress: string;
+};
+export type IbexMorphoWithdrawOperation = {
+    type: "MORPHO_WITHDRAW";
+    shares?: string;
+    amount?: string;
+    assetTicker: string;
+    tokenAddress: string;
+    decimals: number;
+    vaultAddress: string;
+};
+export type IbexSafeOperation = IbexSafeSignMessageOperation | IbexSafeEnableRecoveryOperation | IbexSafeCancelRecoveryOperation | IbexSwapFromQuoteOperation | IbexRouteFromQuoteOperation | IbexHyperliquidDepositOperation | IbexHyperliquidEnterVaultOperation | IbexHyperliquidWithdrawVaultOperation | IbexHyperliquidWithdrawOperation | IbexMorphoSupplyOperation | IbexMorphoWithdrawOperation | (JsonObject & {
     type: string;
 });
 export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";
@@ -767,3 +837,112 @@ export type IbexRouteStatusResponse = {
     sourceUserOpHash?: string | null;
     transactionHash?: string | null;
 } & JsonObject;
+export type IbexWsReconnectPolicy = {
+    enabled?: boolean;
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+};
+export type IbexWsConfig = {
+    apiBaseUrl: string;
+    blockchainId?: string;
+    clientName?: string;
+    getToken: () => string | null;
+    onTokenExpired?: () => void;
+    reconnect?: boolean | IbexWsReconnectPolicy;
+    wsImpl?: {
+        new (url: string | URL, protocols?: string | string[]): WebSocket;
+    };
+};
+export type IbexWsAuthSuccess = {
+    safeAddress: string;
+    message?: string;
+};
+export type IbexWsAuthError = {
+    message: string;
+    error_code?: string;
+    existingConnectionId?: string;
+    context?: string;
+};
+export type IbexWsBalanceUpdate = {
+    address: string;
+    balance: string;
+    updated_at: string;
+};
+export type IbexWsNewTransaction = {
+    address: string;
+    newTransaction: {
+        hash: string;
+        blockNumber?: number;
+        timestamp?: string;
+        from?: string;
+        to?: string;
+        tokenAddress?: string;
+        tokenType?: string;
+        tokenSymbol?: string;
+        value?: string;
+        direction?: string;
+    } & JsonObject;
+    recentTransactions?: JsonObject[];
+    transactionCount?: number;
+    historyLimit?: number;
+};
+export type IbexWsFiatBalanceUpdate = {
+    iban: string;
+    balance: string;
+    currency: string;
+    updated_at: string;
+    externalUserId?: string;
+};
+export type IbexWsFiatTransactionUpdate = {
+    iban: string;
+    transactionId: string;
+    event: string;
+    status: string;
+    previousStatus?: string | null;
+    amount: string;
+    currency: string;
+    externalUserId?: string;
+};
+export type IbexWsChainIdData = {
+    defaultChainId: number;
+    supportedChainIds: number[];
+};
+export type IbexWsSignalEvent = {
+    [key: string]: string;
+};
+export type IbexWsError = {
+    message: string;
+    context?: string;
+    error_code?: string;
+    error?: string;
+};
+export type IbexWsCloseEvent = {
+    code: number;
+    reason: string;
+};
+export type IbexWsRawMessage = {
+    type: string;
+    data: JsonObject;
+    timestamp?: string;
+};
+export type IbexWsEventMap = {
+    open: undefined;
+    close: IbexWsCloseEvent;
+    auth_success: IbexWsAuthSuccess;
+    auth_error: IbexWsAuthError;
+    connection_success: IbexWsAuthSuccess;
+    balance_data: IbexNormalizedBalances;
+    transaction_data: IbexNormalizedTransactions;
+    user_data: IbexNormalizedProfile;
+    balance_update: IbexWsBalanceUpdate;
+    new_transaction: IbexWsNewTransaction;
+    fiat_balance_update: IbexWsFiatBalanceUpdate;
+    fiat_transaction_update: IbexWsFiatTransactionUpdate;
+    chainid_data: IbexWsChainIdData;
+    recovery_data: IbexRecoveryStatusResponse;
+    user_iban_updated: IbexWsSignalEvent;
+    user_ky_updated: IbexWsSignalEvent;
+    error: IbexWsError;
+    raw: IbexWsRawMessage;
+};

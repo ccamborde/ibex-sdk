@@ -332,6 +332,15 @@ export function normalizeTransactionsResponse(raw) {
     }
     return result;
 }
+export function unwrapSection(section) {
+    if (!section || typeof section !== "object")
+        return section;
+    const s = section;
+    if (typeof s.status === "number" && "data" in s) {
+        return s.data;
+    }
+    return section;
+}
 function extractWallets(addresses) {
     if (!addresses || typeof addresses !== "object")
         return [];
@@ -374,35 +383,87 @@ function extractSigners(signers) {
     return arr.filter((x) => !!x && typeof x === "object");
 }
 export function normalizeUserProfileResponse(payload) {
-    const addresses = payload.addresses;
+    const addresses = unwrapSection(payload.addresses);
+    const signersSection = unwrapSection(payload.signers);
+    const ibansSection = unwrapSection(payload.ibans);
+    const balancesSection = unwrapSection(payload.balances);
+    const transactionsSection = unwrapSection(payload.transactions);
+    const kycSection = unwrapSection(payload.kycStatus);
+    const addressbookSection = unwrapSection(payload.addressbook);
     const result = {
         externalUserId: (addresses?.externalUserId ?? payload.externalUserId),
         rpId: addresses?.rpId,
         signerId: addresses?.signerId,
         wallets: extractWallets(addresses),
-        signers: extractSigners(payload.signers),
+        signers: extractSigners(signersSection),
         ibans: [],
         balances: undefined,
         transactions: undefined,
-        kycStatus: (payload.kycStatus ?? undefined),
+        kycStatus: (kycSection ?? undefined),
         addressbook: [],
         data: (payload.data ?? payload.userdata),
         errors: payload.errors,
     };
-    if (payload.ibans && typeof payload.ibans === "object") {
-        const ib = payload.ibans;
-        result.ibans = Array.isArray(ib.ibans) ? ib.ibans : [];
+    if (ibansSection && typeof ibansSection === "object") {
+        const ib = ibansSection;
+        result.ibans = Array.isArray(ib.ibans) ? ib.ibans
+            : Array.isArray(ib) ? ib : [];
     }
-    if (payload.balances && typeof payload.balances === "object") {
-        result.balances = normalizeBalancesResponse(payload.balances);
+    if (balancesSection && typeof balancesSection === "object") {
+        result.balances = normalizeBalancesResponse(balancesSection);
     }
-    if (payload.transactions && typeof payload.transactions === "object") {
-        result.transactions = normalizeTransactionsResponse(payload.transactions);
+    if (transactionsSection && typeof transactionsSection === "object") {
+        result.transactions = normalizeTransactionsResponse(transactionsSection);
     }
-    if (payload.addressbook && typeof payload.addressbook === "object") {
-        const ab = payload.addressbook;
+    if (addressbookSection && typeof addressbookSection === "object") {
+        const ab = addressbookSection;
         result.addressbook = Array.isArray(ab.data) ? ab.data
-            : Array.isArray(ab.entries) ? ab.entries : [];
+            : Array.isArray(ab.entries) ? ab.entries
+                : Array.isArray(ab) ? ab : [];
     }
     return result;
+}
+// --- WebSocket payload normalizers ---
+/**
+ * Normalize a WS `balance_data` event payload (`msg.data`) into the same
+ * `IbexNormalizedBalances` produced by `getMeBalances()`.
+ */
+export function normalizeWsBalanceData(wsData) {
+    const { mode: _, safeAddress: _sa, requestId: _rid, ...rest } = wsData;
+    return normalizeBalancesResponse(rest);
+}
+/**
+ * Normalize a WS `transaction_data` event payload (`msg.data`) into the same
+ * `IbexNormalizedTransactions` produced by `getMeTransactions()`.
+ */
+export function normalizeWsTransactionData(wsData) {
+    const { mode: _, safeAddress: _sa, requestId: _rid, ...rest } = wsData;
+    return normalizeTransactionsResponse(rest);
+}
+/**
+ * Normalize a WS `user_data` event payload (`msg.data`) into the same
+ * `IbexNormalizedProfile` produced by `getMe()`.
+ * Handles both direct payloads and section-enveloped `{ status, data }` payloads.
+ */
+export function normalizeWsUserData(wsData) {
+    return normalizeUserProfileResponse(wsData);
+}
+/**
+ * Parse a raw WS text frame into the standard `{ type, data, timestamp }` envelope.
+ * Returns `null` if parsing fails.
+ */
+export function parseWsMessage(raw) {
+    try {
+        const msg = JSON.parse(raw);
+        if (!msg || typeof msg !== "object" || typeof msg.type !== "string")
+            return null;
+        return {
+            type: msg.type,
+            data: (msg.data && typeof msg.data === "object" ? msg.data : {}),
+            timestamp: typeof msg.timestamp === "string" ? msg.timestamp : undefined,
+        };
+    }
+    catch {
+        return null;
+    }
 }

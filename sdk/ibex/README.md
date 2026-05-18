@@ -12,9 +12,10 @@ Supported flows:
 - User transactions (`GET /v1.2/users/me/transactions`)
 - User addresses (`GET /v1.2/users/me/address`)
 - User signers (`GET /v1.2/users/me/signers`)
-- User monitored tokens (`GET /v1.2/users/me/tokens`)
-- User liquidity pools (`GET /v1.2/users/me/pools`)
-- User lending positions (`GET /v1.2/users/me/lending`)
+- User tokens (`GET /v1.2/users/me/tokens`)
+- Lending catalog (`GET /v1.2/users/me/lending`)
+- Token catalog (`GET /v1.2/chain/tokens`)
+- DeFi vaults catalog (`GET /v1.2/safes/vaults`)
 - Unified address book (`/v1.2/users/me/addressbook*`)
 - SEPA IBAN add/list (`POST /v1.2/sepa/iban/add`, `GET /v1.2/sepa/iban`)
 - SEPA payment intent/confirm (`POST /v1.2/sepa/payments`, `PUT /v1.2/sepa/payments`)
@@ -47,9 +48,10 @@ const balances = await ibex.getMeBalances({ page: 1, limit: 20 });
 const transactions = await ibex.getMeTransactions({ page: 1, limit: 20 });
 const addresses = await ibex.getMeAddress();
 const signers = await ibex.getMeSigners();
-const tokens = await ibex.getMeTokens();
-const pools = await ibex.getMePools({ page: 1, limit: 20 });
-const lending = await ibex.getMeLending({ page: 1, limit: 20 });
+const tokens = await ibex.getMeTokens({ blockchainId: "421614" });
+const lending = await ibex.getMeLending({ userScoped: true });
+const chainTokens = await ibex.getChainTokens({ blockchainId: "421614" });
+const vaults = await ibex.getVaults({ provider: "MORPHO", blockchainId: "8453" });
 const addressBook = await ibex.getMeAddressBook();
 const sepaIbans = await ibex.getSepaIbans();
 const sepaTransactions = await ibex.getSepaTransactions({ page: 1, limit: 20 });
@@ -103,9 +105,12 @@ await ibex.confirmSepaPayment({
 - `getMeTransactions(query?)`
 - `getMeAddress()`
 - `getMeSigners()`
-- `getMeTokens()`
-- `getMePools(query?)`
+- `getMeTokens(query?)`
 - `getMeLending(query?)`
+- `getChainTokens(query?)`
+- `getVaults(query?)`
+- `morphoSupply(safeAddress, params, options?)`
+- `morphoWithdraw(safeAddress, params, options?)`
 - `getMeAddressBook()`
 - `createMeAddressBookEntry(input)`
 - `updateMeAddressBookEntry(id, input)`
@@ -150,10 +155,19 @@ await ibex.confirmSepaPayment({
 - `limit?: number`
 - `includePrices?: boolean`
 
-`getMePools(query?)` and `getMeLending(query?)` accept:
-- `walletAddress?: string`
-- `page?: number`
-- `limit?: number`
+`getMeTokens(query?)` accepts:
+- `blockchainId?: string | number`
+
+`getMeLending(query?)` accepts:
+- `userScoped?: boolean` — when `true`, restricts to chains where the user has watched addresses
+- `blockchainId?: string | number`
+
+`getChainTokens(query?)` accepts:
+- `blockchainId?: string | number`
+
+`getVaults(query?)` accepts:
+- `provider?: "AAVE" | "MORPHO" | "HYPERLIQUID"`
+- `blockchainId?: string | number`
 
 All authenticated methods send both `Authorization: Bearer ...` and `X-IBEx-Auth: Bearer ...`, and automatically retry once after a refresh when the API returns `401` or `403`.
 

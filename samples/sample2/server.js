@@ -96,7 +96,6 @@ app.get("/api/ibex/users/me/transactions", (req, res) => proxyIbex(req, res, "/v
 app.get("/api/ibex/users/me/address", (req, res) => proxyIbex(req, res, "/v1.2/users/me/address"));
 app.get("/api/ibex/users/me/signers", (req, res) => proxyIbex(req, res, "/v1.2/users/me/signers"));
 app.get("/api/ibex/users/me/tokens", (req, res) => proxyIbex(req, res, "/v1.2/users/me/tokens"));
-app.get("/api/ibex/users/me/pools", (req, res) => proxyIbex(req, res, "/v1.2/users/me/pools"));
 app.get("/api/ibex/users/me/lending", (req, res) => proxyIbex(req, res, "/v1.2/users/me/lending"));
 app.get("/api/ibex/users/me/addressbook", (req, res) => proxyIbex(req, res, "/v1.2/users/me/addressbook"));
 app.post("/api/ibex/users/me/addressbook", (req, res) => proxyIbex(req, res, "/v1.2/users/me/addressbook"));

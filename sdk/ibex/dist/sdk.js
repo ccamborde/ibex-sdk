@@ -1,4 +1,5 @@
 import { browserStorage } from "./storage";
+import { IbexRealtimeClient } from "./realtime";
 import { defaultResolveRpId, extractAuthTokens, extractExternalUserId, isAuthStatusError, normalizeBalancesResponse, normalizeTransactionsResponse, normalizeUserProfileResponse, normalizeSignInOptions, normalizeSignUpOptions, normalizeUsersMePayload, serializeAssertion, serializeAttestation, } from "./utils";
 export const IBEX_TOKEN_KEY = "ibex_jwt";
 export const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
@@ -232,17 +233,23 @@ export class IbexSdk {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/signers", token, { method: "GET" }));
         return payload;
     }
-    async getMeTokens() {
-        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/tokens", token, { method: "GET" }));
-        return payload;
-    }
-    async getMePools(query = {}) {
-        const path = this.buildPathWithQuery("/v1.2/users/me/pools", query);
+    async getMeTokens(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/users/me/tokens", query);
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
     async getMeLending(query = {}) {
         const path = this.buildPathWithQuery("/v1.2/users/me/lending", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    async getChainTokens(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/chain/tokens", query);
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
+        return payload;
+    }
+    async getVaults(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/safes/vaults", query);
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch(path, token, { method: "GET" }));
         return payload;
     }
@@ -478,6 +485,66 @@ export class IbexSdk {
             safeAddress,
             operations: [{ type: "SWAP_FROM_QUOTE", quoteId, ...(orderUid ? { orderUid } : {}) }],
             ...rest,
+        });
+    }
+    // --- Hyperliquid ---
+    async hyperliquidDeposit(safeAddress, amount, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "HYPERLIQUID_DEPOSIT", hyperliquidData: { action: "DEPOSIT", amount } }],
+            ...options,
+        });
+    }
+    async hyperliquidEnterVault(safeAddress, amount, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "HYPERLIQUID_ENTER_VAULT", hyperliquidData: { action: "ENTER_VAULT", amount } }],
+            ...options,
+        });
+    }
+    async hyperliquidWithdrawVault(safeAddress, amount, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "HYPERLIQUID_WITHDRAW_VAULT", hyperliquidData: { action: "WITHDRAW", amount } }],
+            ...options,
+        });
+    }
+    async hyperliquidWithdraw(safeAddress, to, amount, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "HYPERLIQUID_WITHDRAW", hyperliquidData: { action: "WITHDRAW_WALLET", to, amount } }],
+            ...options,
+        });
+    }
+    // --- Morpho ---
+    async morphoSupply(safeAddress, params, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "MORPHO_SUPPLY", ...params }],
+            ...options,
+        });
+    }
+    async morphoWithdraw(safeAddress, params, options) {
+        return this.prepareSafeOperations({
+            safeAddress,
+            operations: [{ type: "MORPHO_WITHDRAW", ...params }],
+            ...options,
+        });
+    }
+    // --- Realtime (WebSocket) ---
+    createRealtimeClient(options) {
+        return new IbexRealtimeClient({
+            apiBaseUrl: this.apiBaseUrl,
+            blockchainId: options?.blockchainId ?? this.blockchainId,
+            clientName: options?.clientName,
+            getToken: () => this.getStoredToken(),
+            onTokenExpired: () => {
+                this.refreshSession().catch(() => {
+                    this.clearSessionAndScopedStorage();
+                });
+            },
+            reconnect: options?.reconnect,
+            wsImpl: options?.wsImpl,
         });
     }
     async jsonFetch(path, options = {}) {

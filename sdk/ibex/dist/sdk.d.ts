@@ -1,4 +1,5 @@
-import type { IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexRouteCapabilitiesQuery, IbexRouteCapabilitiesResponse, IbexRouteQuoteRequest, IbexRouteQuoteResponse, IbexRouteStatusResponse, IbexSafeEnableRecoveryOperation, IbexSafeExecuteRequest, IbexSafeExecuteResponse, IbexSafeOperationsRequest, IbexSafePrepareResponse, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexChainsResponse, IbexConfirmEmailRequest, IbexConfirmEmailResponse, IbexEmailRecoverRequest, IbexEmailRecoverResponse, IbexKycIframeRequest, IbexKycIframeResponse, IbexNormalizedBalances, IbexNormalizedProfile, IbexNormalizedTransactions, IbexRecoveryStatusResponse, IbexSdkConfig, IbexSwapQuoteQuery, IbexSwapQuoteResponse, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexUserLendingResponse, IbexUserOperationsQuery, IbexUserOperationsResponse, IbexUserPoolsResponse, IbexUserProfile, IbexUserResourceQuery, IbexUserSignersResponse, IbexUserTokensResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, IbexValidateEmailRequest, IbexValidateEmailResponse, JsonObject } from "./types";
+import { IbexRealtimeClient } from "./realtime";
+import type { IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexRouteCapabilitiesQuery, IbexRouteCapabilitiesResponse, IbexRouteQuoteRequest, IbexRouteQuoteResponse, IbexRouteStatusResponse, IbexSafeEnableRecoveryOperation, IbexSafeExecuteRequest, IbexSafeExecuteResponse, IbexSafeOperationsRequest, IbexSafePrepareResponse, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexChainsResponse, IbexConfirmEmailRequest, IbexConfirmEmailResponse, IbexEmailRecoverRequest, IbexEmailRecoverResponse, IbexKycIframeRequest, IbexKycIframeResponse, IbexNormalizedBalances, IbexNormalizedProfile, IbexNormalizedTransactions, IbexRecoveryStatusResponse, IbexSdkConfig, IbexSwapQuoteQuery, IbexSwapQuoteResponse, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexLendingQuery, IbexTokensQuery, IbexUserLendingResponse, IbexUserOperationsQuery, IbexUserOperationsResponse, IbexUserProfile, IbexUserSignersResponse, IbexUserTokensResponse, IbexVaultsQuery, IbexVaultsResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, IbexValidateEmailRequest, IbexValidateEmailResponse, IbexWsConfig, IbexWsReconnectPolicy, JsonObject } from "./types";
 export declare const IBEX_TOKEN_KEY = "ibex_jwt";
 export declare const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
 export declare const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
@@ -35,9 +36,10 @@ export declare class IbexSdk {
     getMeTransactionsRaw(query?: IbexTransactionsQuery): Promise<IbexUserTransactionsResponse>;
     getMeAddress(): Promise<IbexUserAddressResponse>;
     getMeSigners(): Promise<IbexUserSignersResponse>;
-    getMeTokens(): Promise<IbexUserTokensResponse>;
-    getMePools(query?: IbexUserResourceQuery): Promise<IbexUserPoolsResponse>;
-    getMeLending(query?: IbexUserResourceQuery): Promise<IbexUserLendingResponse>;
+    getMeTokens(query?: IbexTokensQuery): Promise<IbexUserTokensResponse>;
+    getMeLending(query?: IbexLendingQuery): Promise<IbexUserLendingResponse>;
+    getChainTokens(query?: IbexTokensQuery): Promise<IbexUserTokensResponse>;
+    getVaults(query?: IbexVaultsQuery): Promise<IbexVaultsResponse>;
     getChains(): Promise<IbexChainsResponse>;
     getRecoveryStatus(safeAddress: string): Promise<IbexRecoveryStatusResponse>;
     getMeOperations(query?: IbexUserOperationsQuery): Promise<IbexUserOperationsResponse>;
@@ -95,6 +97,55 @@ export declare class IbexSdk {
         walletMode?: IbexSafeOperationsRequest["walletMode"];
         eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
     }): Promise<IbexSafePrepareResponse>;
+    hyperliquidDeposit(safeAddress: string, amount: number, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    hyperliquidEnterVault(safeAddress: string, amount: number, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    hyperliquidWithdrawVault(safeAddress: string, amount: number, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    hyperliquidWithdraw(safeAddress: string, to: string, amount: number, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    morphoSupply(safeAddress: string, params: {
+        amount: string;
+        assetTicker: string;
+        tokenAddress: string;
+        decimals: number;
+        vaultAddress: string;
+    }, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    morphoWithdraw(safeAddress: string, params: {
+        assetTicker: string;
+        tokenAddress: string;
+        decimals: number;
+        vaultAddress: string;
+        shares?: string;
+        amount?: string;
+    }, options?: {
+        chainId?: number;
+        walletMode?: IbexSafeOperationsRequest["walletMode"];
+        eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
+    }): Promise<IbexSafePrepareResponse>;
+    createRealtimeClient(options?: {
+        blockchainId?: string;
+        clientName?: string;
+        reconnect?: boolean | IbexWsReconnectPolicy;
+        wsImpl?: IbexWsConfig["wsImpl"];
+    }): IbexRealtimeClient;
     private jsonFetch;
     private jsonFetchWithMeta;
     private authenticatedJsonFetch;

@@ -142,9 +142,6 @@ app.get('/api/ibex/users/me/signers', (req, res) =>
 app.get('/api/ibex/users/me/tokens', (req, res) =>
   proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/tokens' })
 );
-app.get('/api/ibex/users/me/pools', (req, res) =>
-  proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/pools' })
-);
 app.get('/api/ibex/users/me/lending', (req, res) =>
   proxyToIbex(req, res, { method: 'GET', upstreamPath: '/v1.2/users/me/lending' })
 );

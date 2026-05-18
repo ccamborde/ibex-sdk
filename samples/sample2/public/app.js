@@ -18,7 +18,6 @@ const state = {
   address: null,
   signers: null,
   tokens: null,
-  pools: null,
   lending: null,
   addressBook: null,
   sepaIbans: null,
@@ -42,7 +41,6 @@ const el = {
   addressJson: document.querySelector("#addressJson"),
   signersJson: document.querySelector("#signersJson"),
   tokensJson: document.querySelector("#tokensJson"),
-  poolsJson: document.querySelector("#poolsJson"),
   lendingJson: document.querySelector("#lendingJson"),
   addressBookJson: document.querySelector("#addressBookJson"),
   sepaIbansJson: document.querySelector("#sepaIbansJson"),
@@ -340,7 +338,6 @@ function render() {
   );
   el.signersJson.textContent = JSON.stringify(state.signers || {}, null, 2);
   el.tokensJson.textContent = JSON.stringify(state.tokens || {}, null, 2);
-  el.poolsJson.textContent = JSON.stringify(state.pools || {}, null, 2);
   el.lendingJson.textContent = JSON.stringify(state.lending || {}, null, 2);
   if (el.addressBookJson) el.addressBookJson.textContent = JSON.stringify(state.addressBook || {}, null, 2);
   if (el.sepaIbansJson) el.sepaIbansJson.textContent = JSON.stringify(state.sepaIbans || {}, null, 2);
@@ -480,17 +477,7 @@ async function loadMarketData() {
   }
 
   try {
-    state.pools = await apiFetch(`/api/ibex/users/me/pools${query}`, { auth: true });
-  } catch (error) {
-    if (error.status === 404) {
-      state.pools = { notice: "Address not indexed yet, retry in a few seconds.", status: 404 };
-    } else {
-      state.pools = { error: String(error), status: error.status || 0 };
-    }
-  }
-
-  try {
-    state.lending = await apiFetch(`/api/ibex/users/me/lending${query}`, { auth: true });
+    state.lending = await apiFetch("/api/ibex/users/me/lending", { auth: true });
   } catch (error) {
     state.lending = { error: String(error), status: error.status || 0 };
   }

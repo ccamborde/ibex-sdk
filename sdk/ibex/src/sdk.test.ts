@@ -118,13 +118,12 @@ describe("IbexSdk users/me endpoints", () => {
     expect(headers["X-IBEx-Auth"]).toBe("Bearer access-123");
   });
 
-  it("builds pools and lending URLs with query parameters", async () => {
+  it("builds tokens URL with optional blockchainId", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(200, { data: [] }))
-      .mockResolvedValueOnce(jsonResponse(200, { data: [] }))
-      .mockResolvedValueOnce(jsonResponse(200, { data: [] }));
+      .mockResolvedValueOnce(jsonResponse(200, []))
+      .mockResolvedValueOnce(jsonResponse(200, []));
     const sdk = createIbexSdk({
       apiBaseUrl: "https://passkeys-testnet.ibex.fi",
       fetchImpl: fetchMock,
@@ -133,15 +132,57 @@ describe("IbexSdk users/me endpoints", () => {
 
     sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
     await sdk.getMeTokens();
-    await sdk.getMePools({ walletAddress: "0xaaa", page: 2, limit: 5 });
-    await sdk.getMeLending({ walletAddress: "0xbbb", page: 1, limit: 15 });
+    await sdk.getMeTokens({ blockchainId: "421614" });
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/users/me/tokens");
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
-      "https://passkeys-testnet.ibex.fi/v1.2/users/me/pools?walletAddress=0xaaa&page=2&limit=5",
+      "https://passkeys-testnet.ibex.fi/v1.2/users/me/tokens?blockchainId=421614",
     );
-    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
-      "https://passkeys-testnet.ibex.fi/v1.2/users/me/lending?walletAddress=0xbbb&page=1&limit=15",
+  });
+
+  it("builds lending URL with userScoped and blockchainId", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(200, []))
+      .mockResolvedValueOnce(jsonResponse(200, []));
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    await sdk.getMeLending();
+    await sdk.getMeLending({ userScoped: true, blockchainId: "8453" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/users/me/lending");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://passkeys-testnet.ibex.fi/v1.2/users/me/lending?userScoped=true&blockchainId=8453",
+    );
+  });
+
+  it("builds chainTokens and vaults URLs with query parameters", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(200, []))
+      .mockResolvedValueOnce(jsonResponse(200, []));
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    await sdk.getChainTokens({ blockchainId: "421614" });
+    await sdk.getVaults({ provider: "MORPHO", blockchainId: "8453" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://passkeys-testnet.ibex.fi/v1.2/chain/tokens?blockchainId=421614",
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://passkeys-testnet.ibex.fi/v1.2/safes/vaults?provider=MORPHO&blockchainId=8453",
     );
   });
 
@@ -167,7 +208,7 @@ describe("IbexSdk users/me endpoints", () => {
     const result = await sdk.getMeBalances();
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(result.balance?.tokens?.[0]?.symbol).toBe("EURe");
+    expect(result.wallets).toBeDefined();
     const retryHeaders = fetchMock.mock.calls[2]?.[1]?.headers as Record<string, string>;
     expect(retryHeaders.Authorization).toBe("Bearer new-access");
     expect(sdk.getStoredToken()).toBe("new-access");

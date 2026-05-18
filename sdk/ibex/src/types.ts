@@ -141,10 +141,18 @@ export type IbexTransactionsQuery = {
   includePrices?: boolean;
 };
 
-export type IbexUserResourceQuery = {
-  walletAddress?: string;
-  page?: number;
-  limit?: number;
+export type IbexTokensQuery = {
+  blockchainId?: string | number;
+};
+
+export type IbexLendingQuery = {
+  userScoped?: boolean;
+  blockchainId?: string | number;
+};
+
+export type IbexVaultsQuery = {
+  provider?: "AAVE" | "MORPHO" | "HYPERLIQUID";
+  blockchainId?: string | number;
 };
 
 export type IbexAddressBookCryptoRow = {
@@ -386,27 +394,42 @@ export type IbexUserTokensResponse = {
   tokens?: JsonObject[];
 } & JsonObject;
 
-export type IbexUserPoolsResponse = {
-  type?: string;
-  identifier?: string;
-  blockchainId?: string | number;
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-  data?: JsonObject[];
+export type IbexLendingEntry = {
+  id: number;
+  blockchainId: string;
+  provider: "AAVE" | "MORPHO" | "HYPERLIQUID";
+  address: string;
+  name: string | null;
+  assetTicker: string | null;
+  assetAddress: string | null;
+  assetDecimals: number | null;
+  apy: number | null;
+  tvl: number | null;
+  isDefault: boolean;
+  acceptedTokenAddresses?: string[] | null;
+  leader?: string | null;
+  leaderCommission?: number | null;
 } & JsonObject;
 
-export type IbexUserLendingResponse = {
-  type?: string;
-  identifier?: string;
-  blockchainId?: string | number;
-  total?: number;
-  page?: number;
-  limit?: number;
-  totalPages?: number;
-  data?: JsonObject[];
+export type IbexUserLendingResponse = IbexLendingEntry[];
+
+export type IbexVaultEntry = {
+  id: number;
+  blockchainId: string;
+  provider: "AAVE" | "MORPHO" | "HYPERLIQUID";
+  poolAddress: string;
+  name: string;
+  assetTicker: string;
+  assetAddress: string;
+  assetDecimals: number;
+  apy: number | null;
+  tvl: number | null;
+  isDefault: boolean;
+  metadata?: JsonObject;
+  supplyToken?: { address: string; symbol: string; name: string; decimals: number };
 } & JsonObject;
+
+export type IbexVaultsResponse = IbexVaultEntry[];
 
 export type IbexSepaIban = {
   id?: string | number;
@@ -760,6 +783,8 @@ export type IbexSafeOperationType =
   | "ROUTE_FROM_QUOTE"
   | "AAVE_SUPPLY"
   | "AAVE_WITHDRAW"
+  | "MORPHO_SUPPLY"
+  | "MORPHO_WITHDRAW"
   | "ADD_OWNER"
   | "REMOVE_OWNER"
   | "CHANGE_THRESHOLD"
@@ -817,6 +842,25 @@ export type IbexHyperliquidWithdrawOperation = {
   hyperliquidData: { action: "WITHDRAW_WALLET"; to: string; amount: number };
 };
 
+export type IbexMorphoSupplyOperation = {
+  type: "MORPHO_SUPPLY";
+  amount: string;
+  assetTicker: string;
+  tokenAddress: string;
+  decimals: number;
+  vaultAddress: string;
+};
+
+export type IbexMorphoWithdrawOperation = {
+  type: "MORPHO_WITHDRAW";
+  shares?: string;
+  amount?: string;
+  assetTicker: string;
+  tokenAddress: string;
+  decimals: number;
+  vaultAddress: string;
+};
+
 export type IbexSafeOperation =
   | IbexSafeSignMessageOperation
   | IbexSafeEnableRecoveryOperation
@@ -827,6 +871,8 @@ export type IbexSafeOperation =
   | IbexHyperliquidEnterVaultOperation
   | IbexHyperliquidWithdrawVaultOperation
   | IbexHyperliquidWithdrawOperation
+  | IbexMorphoSupplyOperation
+  | IbexMorphoWithdrawOperation
   | (JsonObject & { type: string });
 
 export type IbexSafeWalletMode = "SAFE_4337" | "EOA_7702";

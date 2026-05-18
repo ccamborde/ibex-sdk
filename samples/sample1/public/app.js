@@ -477,7 +477,6 @@ function renderMarketData(resources) {
     address,
     signers,
     tokens,
-    pools,
     lending,
     addressBook,
     sepaIbans,
@@ -492,7 +491,6 @@ function renderMarketData(resources) {
   }, null, 2);
   document.getElementById('signersData').textContent = JSON.stringify(signers || {}, null, 2);
   document.getElementById('tokensData').textContent = JSON.stringify(tokens || {}, null, 2);
-  document.getElementById('poolsData').textContent = JSON.stringify(pools || {}, null, 2);
   document.getElementById('lendingData').textContent = JSON.stringify(lending || {}, null, 2);
   document.getElementById('addressBookData').textContent = JSON.stringify(addressBook || {}, null, 2);
   document.getElementById('sepaIbansData').textContent = JSON.stringify(sepaIbans || {}, null, 2);
@@ -520,8 +518,7 @@ async function loadMarketData() {
     address: await loadProtectedResource('/api/ibex/users/me/address'),
     signers: await loadProtectedResource('/api/ibex/users/me/signers'),
     tokens: await loadProtectedResource('/api/ibex/users/me/tokens'),
-    pools: await loadProtectedResource('/api/ibex/users/me/pools', { query: paged, indexing404: true }),
-    lending: await loadProtectedResource('/api/ibex/users/me/lending', { query: paged }),
+    lending: await loadProtectedResource('/api/ibex/users/me/lending'),
     addressBook: await loadProtectedResource('/api/ibex/users/me/addressbook'),
     sepaIbans: sepa.ibans,
     sepaTransactions: sepa.transactions,

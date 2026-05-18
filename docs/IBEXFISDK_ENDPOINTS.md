@@ -122,9 +122,10 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `getMeTransactionsRaw(query?)` | `GET` | `/v1.2/users/me/transactions` |
 | `getMeAddress()` | `GET` | `/v1.2/users/me/address` |
 | `getMeSigners()` | `GET` | `/v1.2/users/me/signers` |
-| `getMeTokens()` | `GET` | `/v1.2/users/me/tokens` |
-| `getMePools(query?)` | `GET` | `/v1.2/users/me/pools` |
+| `getMeTokens(query?)` | `GET` | `/v1.2/users/me/tokens` |
 | `getMeLending(query?)` | `GET` | `/v1.2/users/me/lending` |
+| `getChainTokens(query?)` | `GET` | `/v1.2/chain/tokens` |
+| `getVaults(query?)` | `GET` | `/v1.2/safes/vaults` |
 | `getMeAddressBook()` | `GET` | `/v1.2/users/me/addressbook` |
 | `createMeAddressBookEntry(input)` | `POST` | `/v1.2/users/me/addressbook` |
 | `updateMeAddressBookEntry(id, input)` | `PUT` | `/v1.2/users/me/addressbook/:id` |
@@ -165,6 +166,8 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `hyperliquidEnterVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
 | `hyperliquidWithdrawVault(safeAddress, amount, options?)` | `POST` | `/v1.2/safes/operations` |
 | `hyperliquidWithdraw(safeAddress, to, amount, options?)` | `POST` | `/v1.2/safes/operations` |
+| `morphoSupply(safeAddress, params, options?)` | `POST` | `/v1.2/safes/operations` |
+| `morphoWithdraw(safeAddress, params, options?)` | `POST` | `/v1.2/safes/operations` |
 | `createRealtimeClient(options?)` | WebSocket | `/ws` |
 
 ## Detailed Endpoint Usage
@@ -198,6 +201,92 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   - The SDK always sends enrichment flags (`includeBalance`, `includeTransactions`, `includeUserdata`) in the POST sign-in body
   - Do not call `getMe()` immediately after auth for data that is already in the enriched sign-in response
   - `externalUserId` is extracted from the auth response `subject` field and stored by the SDK
+
+#### Step 1 — GET `/v1.2/auth/sign-in` (fetch WebAuthn options)
+
+- Query parameters:
+  | Param | Type | Default | Description |
+  |---|---|---|---|
+  | `wallet` | string | `passkeys` | Wallet type: `passkeys`, `kdf`, or `email` |
+  | `externalUserId` | string | — | Required for `wallet=kdf` and `wallet=email` |
+
+- Response (passkey challenge):
+  ```json
+  {
+    "credentialRequestOptions": {
+      "challenge": "<base64url>",
+      "rpId": "demobaas-prat1.ibex.fi",
+      "userVerification": "required",
+      "timeout": 60000,
+      "allowCredentials": [{ "id": "<base64url>", "type": "public-key" }]
+    }
+  }
+  ```
+- The SDK passes `credentialRequestOptions` to `navigator.credentials.get()` (after normalizing PRF extensions from base64url to ArrayBuffer).
+
+#### Step 2 — POST `/v1.2/auth/sign-in` (complete assertion)
+
+- Request body sent by SDK:
+  | Field | Type | Required | Description |
+  |---|---|---|---|
+  | `credential` | object | Yes | Serialized `PublicKeyCredential` from `navigator.credentials.get()` |
+  | `credential.id` | string | Yes | Credential ID (base64url) |
+  | `credential.rawId` | string | Yes | Raw credential ID (base64url) |
+  | `credential.type` | string | Yes | Always `"public-key"` |
+  | `credential.response.authenticatorData` | string | Yes | Authenticator data (base64url) |
+  | `credential.response.clientDataJSON` | string | Yes | Client data (base64url) |
+  | `credential.response.signature` | string | Yes | Assertion signature (base64url) |
+  | `credential.response.userHandle` | string | — | User handle (base64url, if provided by authenticator) |
+  | `credential.clientExtensionResults` | object | — | Client extension outputs (e.g. PRF results) |
+  | `includeBalance` | boolean | Yes (SDK default: `true`) | Include token balances in response |
+  | `includeTransactions` | boolean | Yes (SDK default: `true`) | Include transaction history in response |
+  | `includeUserdata` | boolean | Yes (SDK default: `true`) | Include user custom data in response |
+  | `chainId` | number | — | Target chain for balance/transactions (defaults to platform default) |
+  | `asyncData` | boolean | — | If `true`, enrichment data is returned asynchronously via `dataRequestId` |
+  | `safeAddress` | string | — | Checksummed address to select a specific Safe for the session |
+  | `deploySaltNonce` | string | — | `""` for primary Safe, or nonce used at provision |
+
+- Response (200 — passkey, enriched):
+  ```json
+  {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "issuer": "demobaas-prat1.ibex.fi",
+    "audience": "demobaas-prat1.ibex.fi",
+    "subject": "<externalUserId>",
+    "roles": ["USER"],
+    "authMethod": "PASSKEY",
+    "hasPasskey": true,
+    "safeAddress": {
+      "421614": "0xd676c6188195372EC269E9C2cAf815C56436A679"
+    },
+    "chainId": 421614,
+    "keyName": "my-passkey",
+    "keyDisplayName": "My Passkey",
+    "eoaAddress": "0x...",
+    "eoaAddresses": [
+      { "type": "EVM", "address": "0x..." },
+      { "type": "SOLANA", "address": "..." },
+      { "type": "BITCOIN_P2WPKH", "address": "bc1q..." }
+    ],
+    "prfCapable": true,
+    "balance": { "...enriched balances..." },
+    "transactions": { "...enriched transactions..." },
+    "userdata": { "...enriched userdata..." }
+  }
+  ```
+- Response fields extracted by SDK:
+  | Field | SDK usage |
+  |---|---|
+  | `access_token` | Stored for `Authorization` / `X-IBEx-Auth` headers |
+  | `refresh_token` | Stored for `refreshSession()` |
+  | `subject` | Stored as `externalUserId` |
+  | `issuer` | Used as `rpId` for subsequent requests |
+  | `balance`, `transactions`, `userdata` | Available immediately — no need to call `getMe()` after sign-in |
+
+- Async enrichment mode (`asyncData: true`): the response returns immediately with `dataRequestId` and `dataStatus: "PENDING"` instead of inline data. Poll `GET /v1.2/auth/sign-in/data/:dataRequestId` for `READY` status (TTL ~180s).
 
 ### `refreshSession()` / `refreshSessionDetailed()`
 
@@ -702,14 +791,16 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   }
   ```
 
-### `getMeTokens()`
+### `getMeTokens(query?)`
 
 - Endpoint: `GET /v1.2/users/me/tokens`
-- Purpose: return the monitored token list available for the user context (proxy to BCReader config)
+- Purpose: return the tokens the authenticated user has interacted with (based on transaction history)
 - Returns: `IbexUserTokensResponse`
+- Supported query params (`IbexTokensQuery`):
+  - `blockchainId?: string | number` — scope to a single chain (flat array); omit for all chains (grouped)
 - Behavior:
-  - With `blockchainId` configured in SDK: returns tokens for that specific chain
-  - Without `blockchainId`: returns multi-chain data (can be grouped by chain)
+  - With `blockchainId`: returns a flat array of tokens for that chain
+  - Without `blockchainId`: returns tokens grouped by `blockchainId`
 - Example response (chain 421614 — all tokens from testnet faucet catalog):
   ```json
   [
@@ -815,47 +906,54 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   ]
   ```
 
-### `getMePools(query?)`
-
-- Endpoint: `GET /v1.2/users/me/pools`
-- Purpose: return DeFi pool balances and yields for the authenticated user's wallets (proxied from BCReader)
-- Returns: API passthrough (object envelope)
-- Supported query params in SDK:
-  - `walletAddress?: string` — scope to a single wallet
-  - `page?: number`
-  - `limit?: number`
-- Example request:
-  ```typescript
-  const pools = await sdk.getMePools();
-  const poolsFiltered = await sdk.getMePools({
-    walletAddress: "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8"
-  });
-  ```
-- Notes:
-  - Response shape depends on the upstream BCReader; the SDK passes through the raw payload without normalization
-  - The blockchain context is resolved from `X-Blockchain-Id` header (set at SDK initialization via `blockchainId`)
-  - If no pools are deployed on the user's chain, the response will be empty
-
 ### `getMeLending(query?)`
 
 - Endpoint: `GET /v1.2/users/me/lending`
-- Purpose: return available lending pools for the authenticated user's chain (proxied from BCReader)
-- Returns: array of lending pool objects (API passthrough)
-- Supported query params in SDK:
-  - `walletAddress?: string` — scope to a single wallet
-  - `page?: number`
-  - `limit?: number`
+- Purpose: return the lending/vault catalog. Supports AAVE, MORPHO, and HYPERLIQUID providers.
+- Returns: `IbexUserLendingResponse` (array of `IbexLendingEntry`)
+- Supported query params (`IbexLendingQuery`):
+  - `userScoped?: boolean` — when `true`, restricts results to chains where the user has watched addresses (replaces former `/me/pools`)
+  - `blockchainId?: string | number` — filter by chain ID
 - Example request:
   ```typescript
-  const lending = await sdk.getMeLending();
-  const lendingFiltered = await sdk.getMeLending({
-    walletAddress: "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8"
-  });
+  const allLending = await sdk.getMeLending();
+  const userLending = await sdk.getMeLending({ userScoped: true });
+  const baseLending = await sdk.getMeLending({ blockchainId: "8453" });
+  ```
+- Response fields per entry: `id`, `blockchainId`, `provider` (`"AAVE"` | `"MORPHO"` | `"HYPERLIQUID"`), `address`, `name`, `assetTicker`, `assetAddress`, `assetDecimals`, `apy`, `tvl`, `isDefault`, `acceptedTokenAddresses`, `leader`, `leaderCommission`
+- Notes:
+  - `userScoped=true` with no watched addresses returns `404`
+  - The former `getMePools()` method has been removed — use `getMeLending({ userScoped: true })` instead
+
+### `getChainTokens(query?)`
+
+- Endpoint: `GET /v1.2/chain/tokens`
+- Purpose: return the full token catalog (all monitored tokens, not user-scoped). Prefer `getMeTokens()` for user-specific tokens.
+- Returns: `IbexUserTokensResponse`
+- Supported query params (`IbexTokensQuery`):
+  - `blockchainId?: string | number` — scope to a single chain
+- Example request:
+  ```typescript
+  const allTokens = await sdk.getChainTokens();
+  const chainTokens = await sdk.getChainTokens({ blockchainId: "421614" });
   ```
 - Notes:
-  - Response shape depends on the upstream BCReader; the SDK passes through the raw payload without normalization
-  - The blockchain context is resolved from `X-Blockchain-Id` header (set at SDK initialization via `blockchainId`)
-  - If lending is not deployed on the user's chain, the response will be empty
+  - This is a configuration-oriented endpoint — it serves the full token catalog, not user balances
+
+### `getVaults(query?)`
+
+- Endpoint: `GET /v1.2/safes/vaults`
+- Purpose: return the catalog of active DeFi lending pools/vaults across providers (AAVE, MORPHO, HYPERLIQUID)
+- Returns: `IbexVaultsResponse` (array of `IbexVaultEntry`)
+- Supported query params (`IbexVaultsQuery`):
+  - `provider?: "AAVE" | "MORPHO" | "HYPERLIQUID"` — filter by provider
+  - `blockchainId?: string | number` — filter by chain ID
+- Example request:
+  ```typescript
+  const allVaults = await sdk.getVaults();
+  const morphoVaults = await sdk.getVaults({ provider: "MORPHO", blockchainId: "8453" });
+  ```
+- Response fields per entry: `id`, `blockchainId`, `provider`, `poolAddress`, `name`, `assetTicker`, `assetAddress`, `assetDecimals`, `apy`, `tvl`, `isDefault`, `metadata` (provider-specific), `supplyToken`
 
 ### `getMeAddressBook()`
 
@@ -2131,6 +2229,76 @@ All four methods follow the standard two-step Safe operations flow (prepare → 
 - Notes:
   - Unlike the other Hyperliquid operations, this one requires a destination wallet address (`to`)
   - The server calls `WITHDRAW_WALLET` on the Hyperliquid API after on-chain execution
+
+### 14b) Morpho
+
+Morpho operations interact with ERC-4626 vaults (Morpho protocol). Both methods follow the standard two-step Safe operations flow (prepare -> WebAuthn sign -> execute).
+
+### `morphoSupply(safeAddress, params, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `MORPHO_SUPPLY` operation
+- Purpose: deposit assets into a Morpho Vault (ERC-4626)
+- Parameters:
+  - `safeAddress: string` (required)
+  - `params: { amount, assetTicker, tokenAddress, decimals, vaultAddress }` (required)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  const prepare = await sdk.morphoSupply(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    {
+      amount: "1000000",
+      assetTicker: "USDC",
+      tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      decimals: 6,
+      vaultAddress: "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+    },
+    { chainId: 8453 }
+  );
+
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Morpho supply:", result.userOpHash);
+  ```
+
+### `morphoWithdraw(safeAddress, params, options?)`
+
+- Convenience wrapper around `prepareSafeOperations` with a single `MORPHO_WITHDRAW` operation
+- Purpose: withdraw assets from a Morpho Vault (redeem shares or withdraw by amount)
+- Parameters:
+  - `safeAddress: string` (required)
+  - `params: { assetTicker, tokenAddress, decimals, vaultAddress, shares?, amount? }` (required — provide `shares` to redeem or `amount` to withdraw)
+  - `options?: { chainId?, walletMode?, eoaKeySelection? }`
+- Returns: `IbexSafePrepareResponse` (WebAuthn challenge)
+- Example:
+  ```typescript
+  const prepare = await sdk.morphoWithdraw(
+    "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
+    {
+      assetTicker: "USDC",
+      tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      decimals: 6,
+      vaultAddress: "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+      shares: "500000",
+    },
+    { chainId: 8453 }
+  );
+
+  const assertion = await navigator.credentials.get({
+    publicKey: prepare.credentialRequestOptions
+  });
+
+  const result = await sdk.executeSafeOperations({
+    credential: serializeCredential(assertion)
+  });
+  console.log("Morpho withdraw:", result.userOpHash);
+  ```
 
 ### 15) WebSocket Realtime
 

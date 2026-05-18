@@ -55,14 +55,16 @@ import type {
   IbexTransactionsQuery,
   IbexUserAddressResponse,
   IbexUserBalancesResponse,
+  IbexLendingQuery,
+  IbexTokensQuery,
   IbexUserLendingResponse,
   IbexUserOperationsQuery,
   IbexUserOperationsResponse,
-  IbexUserPoolsResponse,
   IbexUserProfile,
-  IbexUserResourceQuery,
   IbexUserSignersResponse,
   IbexUserTokensResponse,
+  IbexVaultsQuery,
+  IbexVaultsResponse,
   IbexUserTransactionsResponse,
   IbexUpdateAddressBookEntryInput,
   IbexValidateEmailRequest,
@@ -350,27 +352,36 @@ export class IbexSdk {
     return payload as IbexUserSignersResponse;
   }
 
-  async getMeTokens(): Promise<IbexUserTokensResponse> {
+  async getMeTokens(query: IbexTokensQuery = {}): Promise<IbexUserTokensResponse> {
+    const path = this.buildPathWithQuery("/v1.2/users/me/tokens", query as JsonObject);
     const payload = await this.withRefreshOnUnauthorized(async (token) =>
-      this.authenticatedJsonFetch("/v1.2/users/me/tokens", token, { method: "GET" }),
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
     );
     return payload as IbexUserTokensResponse;
   }
 
-  async getMePools(query: IbexUserResourceQuery = {}): Promise<IbexUserPoolsResponse> {
-    const path = this.buildPathWithQuery("/v1.2/users/me/pools", query as JsonObject);
-    const payload = await this.withRefreshOnUnauthorized(async (token) =>
-      this.authenticatedJsonFetch(path, token, { method: "GET" }),
-    );
-    return payload as IbexUserPoolsResponse;
-  }
-
-  async getMeLending(query: IbexUserResourceQuery = {}): Promise<IbexUserLendingResponse> {
+  async getMeLending(query: IbexLendingQuery = {}): Promise<IbexUserLendingResponse> {
     const path = this.buildPathWithQuery("/v1.2/users/me/lending", query as JsonObject);
     const payload = await this.withRefreshOnUnauthorized(async (token) =>
       this.authenticatedJsonFetch(path, token, { method: "GET" }),
     );
-    return payload as IbexUserLendingResponse;
+    return payload as unknown as IbexUserLendingResponse;
+  }
+
+  async getChainTokens(query: IbexTokensQuery = {}): Promise<IbexUserTokensResponse> {
+    const path = this.buildPathWithQuery("/v1.2/chain/tokens", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as IbexUserTokensResponse;
+  }
+
+  async getVaults(query: IbexVaultsQuery = {}): Promise<IbexVaultsResponse> {
+    const path = this.buildPathWithQuery("/v1.2/safes/vaults", query as JsonObject);
+    const payload = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch(path, token, { method: "GET" }),
+    );
+    return payload as unknown as IbexVaultsResponse;
   }
 
   // --- Chains ---
@@ -792,6 +803,32 @@ export class IbexSdk {
     return this.prepareSafeOperations({
       safeAddress,
       operations: [{ type: "HYPERLIQUID_WITHDRAW", hyperliquidData: { action: "WITHDRAW_WALLET", to, amount } }],
+      ...options,
+    });
+  }
+
+  // --- Morpho ---
+
+  async morphoSupply(
+    safeAddress: string,
+    params: { amount: string; assetTicker: string; tokenAddress: string; decimals: number; vaultAddress: string },
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "MORPHO_SUPPLY", ...params }],
+      ...options,
+    });
+  }
+
+  async morphoWithdraw(
+    safeAddress: string,
+    params: { assetTicker: string; tokenAddress: string; decimals: number; vaultAddress: string; shares?: string; amount?: string },
+    options?: { chainId?: number; walletMode?: IbexSafeOperationsRequest["walletMode"]; eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"] },
+  ): Promise<IbexSafePrepareResponse> {
+    return this.prepareSafeOperations({
+      safeAddress,
+      operations: [{ type: "MORPHO_WITHDRAW", ...params }],
       ...options,
     });
   }
