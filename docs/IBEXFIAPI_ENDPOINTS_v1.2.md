@@ -2,6 +2,10 @@
 
 ## Changelog
 
+- **2026-05-21** `create` `POST /v1.2/auth/sign-up` (wallet=sms) — new SMS-based signup (KYC & KYB), single POST creates user + triggers IbexSafe phone verification
+- **2026-05-21** `create` `GET /v1.2/auth/sign-in` (wallet=sms) — new SMS-based sign-in step 1, triggers OTP via IbexSafe
+- **2026-05-21** `create` `POST /v1.2/auth/sign-in` (wallet=sms) — new SMS-based sign-in step 2, confirms OTP and returns JWT
+- **2026-05-20** `create` `POST /api/admin/devtools/company/check` — new DevTools endpoint for fast KYB pre-check on a SIREN
 - **2026-05-18** `create` `POST /v1.2/users/me/validate-sms` — new SMS verification endpoint (send code)
 - **2026-05-18** `create` `POST /v1.2/users/me/confirm-sms` — new SMS verification endpoint (confirm code)
 - **2026-05-18** `create` `POST /api/admin/devtools/ky/sms-verified` — new DevTools endpoint to manually set SMS verification data
@@ -301,6 +305,106 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 
 ---
 
+### Sign Up — SMS wallet (`wallet=sms`)
+
+- **POST** `/v1.2/auth/sign-up`
+- **Auth**: PUBLIC (EXTERNAL)
+- **Description**: Creates a new user account with SMS-based authentication in a single POST (no prior GET required). The phone number is registered in IbexSafe for future OTP-based sign-in.
+
+**Body (KYC — individual):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wallet` | string | Yes | Must be `"sms"` |
+| `telephone` | string | Yes | E.164 format (e.g. `+33612345678`) |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` (default) |
+
+**Body (KYB — company):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wallet` | string | Yes | Must be `"sms"` |
+| `telephone` | string | Yes | E.164 format |
+| `email` | string | Yes | Contact email |
+| `companyRegistrationNumber` | string | Yes | SIREN (9 digits) |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` |
+
+**200 Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "SMS",
+  "hasPasskey": false,
+  "wallet": "sms",
+  "externalUserId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "...",
+  "chatbotFullURL": "https://safe-testnet.ib.exchange/chatbot/?session=...",
+  "code": "123456"
+}
+```
+
+> **Development only (`NODE_ENV=development`):** When IbexSafe operates in dryRun mode (no real SMS sent), the response includes a `code` field with the OTP for testing purposes. This field is **never** returned in production environments.
+
+**Rate limiting:** 3 SMS/day per phone number, 10/day per IP, 100/day per tenant. Shared counters with sign-in SMS.
+
+**Errors:** `400` invalid phone format or missing fields · `429` rate limit exceeded
+
+---
+
+### Sign-in — SMS wallet (`wallet=sms`)
+
+**Step 1 — Trigger OTP:**
+
+```http
+GET /v1.2/auth/sign-in?wallet=sms&telephone=+33612345678
+Host: app.ibex.fi
+```
+
+| Query | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wallet` | string | Yes | Must be `"sms"` |
+| `telephone` | string | Yes | E.164 format |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` |
+
+Triggers an SMS OTP to the registered phone number via IbexSafe.
+
+**200 Response:**
+
+```json
+{ "wallet": "sms" }
+```
+
+> **Development only (`NODE_ENV=development`):** When IbexSafe operates in dryRun mode (no real SMS sent), the response includes a `code` field: `{ "wallet": "sms", "code": "123456" }`. This field is **never** returned in production environments.
+
+**Rate limiting:** Same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant).
+
+**Step 2 — Confirm OTP:**
+
+```http
+POST /v1.2/auth/sign-in
+Host: app.ibex.fi
+Content-Type: application/json
+
+{ "wallet": "sms", "telephone": "+33612345678", "code": "123456" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wallet` | string | Yes | Must be `"sms"` |
+| `telephone` | string | Yes | Same phone as step 1 |
+| `code` | string | Yes | 4-8 digit OTP received by SMS |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` |
+
+**200 Response:** Standard JWT response (`access_token`, `refresh_token`, `expires_in`, `authMethod: "SMS"`, etc.)
+
+**Errors:** `400` invalid/expired code, missing GET step · `404` phone not registered · `429` rate limit exceeded
+
+---
+
 ### Sign-in (get options)
 
 | Method | Path | Auth | Available in |
@@ -309,7 +413,7 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 | POST | `/v1.2/auth/sign-in` | PUBLIC | **v1.2** |
 
 **Query parameters:**
-- `wallet` (string, optional): `passkeys` (default), `kdf`, `email`
+- `wallet` (string, optional): `passkeys` (default), `kdf`, `email`, `sms`
 - `externalUserId` (string, optional): required for `wallet=kdf` and `wallet=email`
 - `flow` (string, optional, **deprecated**): `pin-kdf` (prefer `wallet=kdf`)
 
@@ -2617,6 +2721,42 @@ Manually set SMS verification data for a user without sending a real SMS. Useful
 ```
 
 **Error Responses:** `400` missing fields or invalid phone/date. `404` KY customer not found or `externalUserId` not linked to tenant.
+
+##### POST `/api/admin/devtools/company/check`
+
+Run a fast KYB pre-check on a SIREN number without creating a KY file. Returns an eligibility verdict based on company data, sanctions/PEP screening, and risk scoring.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `siren` | string | Yes | French SIREN number (exactly 9 digits, pattern `^\d{9}$`). |
+
+**Example request:**
+
+```http
+POST /api/admin/devtools/company/check
+Host: passkeys-prat1.ibex.fi
+Content-Type: application/json
+x-api-key: <Domain.apiKey>
+
+{
+  "siren": "123456789"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "result": "OK"
+  }
+}
+```
+
+`result` is `OK` when the computed risk score is below or equal to the auto-approve threshold, `KO` otherwise.
+
+**Error Responses:** `400` invalid SIREN / company not found / inactive company. `404` outside development deployments.
 
 ##### POST `/api/admin/devtools/sepa/topup`
 

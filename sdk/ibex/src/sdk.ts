@@ -1,6 +1,8 @@
 import { browserStorage } from "./storage";
 import { IbexRealtimeClient } from "./realtime";
+import { IbexDevToolsClient } from "./devtools";
 import type {
+  IbexDevToolsConfig,
   IbexAddAddressBookCryptoInput,
   IbexAddressBookEntryResponse,
   IbexAddressBookListResponse,
@@ -856,6 +858,18 @@ export class IbexSdk {
       safeAddress,
       operations: [{ type: "MORPHO_WITHDRAW", ...params }],
       ...options,
+    });
+  }
+
+  // --- DevTools ---
+
+  createDevToolsClient(
+    config: Omit<IbexDevToolsConfig, "apiBaseUrl" | "fetchImpl"> & { apiBaseUrl?: string },
+  ): IbexDevToolsClient {
+    return new IbexDevToolsClient({
+      apiBaseUrl: config.apiBaseUrl ?? this.apiBaseUrl,
+      fetchImpl: this.fetchImpl,
+      ...config,
     });
   }
 

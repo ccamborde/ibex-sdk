@@ -44,6 +44,10 @@ The SDK currently integrates:
   - on-demand requests (get_balance, get_transactions)
   - push events (balance_update, new_transaction, fiat_balance_update, fiat_transaction_update, user_iban_updated, user_ky_updated)
   - **same normalized output types** as HTTP methods (format parity)
+- **DevTools** (`IbexDevToolsClient` — separate client, API key / Basic auth):
+  - KY dossier management (list, read state, force state, KYC enroll, KYB enroll, SMS verified)
+  - Company KYB pre-check (SIREN)
+  - Faucet topup (SEPA, crypto)
 
 ### SDK Normalization Pattern
 
@@ -2536,6 +2540,70 @@ ws.on("close", (event) => {
   2. replay original request with new token
 - If refresh fails:
   - SDK clears session data and external-user-scoped cached keys.
+
+## DevTools (`IbexDevToolsClient`)
+
+The SDK exposes admin/development tooling via a **separate client** (`IbexDevToolsClient`) because DevTools endpoints use a different authentication model (API key / HTTP Basic / localhost bypass) than the standard passkey JWT auth.
+
+### Authentication
+
+DevTools auth is resolved in priority order:
+
+1. **`apiKey`** — header `x-api-key: <value>` + rpId headers.
+2. **`basicAuth`** (`{ username, password }`) — header `Authorization: Basic <base64>`.
+3. **None** (localhost bypass) — rpId headers only (`X-Rp-Id`, `X-RpId` with configured `rpId` or `localhost`).
+
+### Creating the client
+
+```typescript
+import { createIbexDevToolsClient } from "ibex-sdk";
+
+// Standalone
+const devtools = createIbexDevToolsClient({
+  apiBaseUrl: "https://passkeys-prat1.ibex.fi",
+  apiKey: "my-domain-api-key",
+});
+
+// Or via IbexSdk (inherits apiBaseUrl + fetchImpl)
+const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
+```
+
+### Endpoint mapping
+
+| SDK Method | HTTP Method | API Endpoint | Description |
+|---|---|---|---|
+| `devtools.kyList(query?)` | `GET` | `/api/admin/devtools/ky/list` | Paginated list of KY dossiers |
+| `devtools.kyGetState(externalUserId)` | `GET` | `/api/admin/devtools/ky/state/:externalUserId` | Current KY state for one user |
+| `devtools.kySetState(input)` | `POST` | `/api/admin/devtools/ky/state` | Force KY state transition |
+| `devtools.kyEnroll(input)` | `POST` | `/api/admin/devtools/ky/enroll` | Create a KYC session |
+| `devtools.kybEnroll(input)` | `POST` | `/api/admin/devtools/kyb/enroll` | Create a KYB enrollment |
+| `devtools.kySmsVerified(input)` | `POST` | `/api/admin/devtools/ky/sms-verified` | Manually set SMS verification data |
+| `devtools.companyCheck(input)` | `POST` | `/api/admin/devtools/company/check` | Fast KYB pre-check on a SIREN |
+| `devtools.sepaTopup(input)` | `POST` | `/api/admin/devtools/sepa/topup` | SEPA faucet topup (dev only) |
+| `devtools.cryptoTopup(input)` | `POST` | `/api/admin/devtools/crypto/topup` | Crypto faucet topup (dev only) |
+
+### Types
+
+| Type | Role |
+|---|---|
+| `IbexDevToolsConfig` | Client configuration (apiBaseUrl, apiKey?, basicAuth?, rpId?, fetchImpl?) |
+| `IbexDevToolsKyListQuery` | Query params for `kyList` (page?, limit?) |
+| `IbexDevToolsKyListResponse` | Paginated list response (items[], total, page, limit, totalPages) |
+| `IbexDevToolsKyStateResponse` | KY state (state, kyStateCode, allowedStates, ...) |
+| `IbexDevToolsKySetStateInput` | Input for `kySetState` (externalUserId, newStateId, entityType?, ...) |
+| `IbexDevToolsKySetStateResponse` | State transition result (success, fromStateId, toStateId) |
+| `IbexDevToolsKyEnrollInput` | Input for `kyEnroll` (externalUserId, language?, email?, ...) |
+| `IbexDevToolsKyEnrollResponse` | KYC session (sessionId, chatbotURL, chatbotFullURL) |
+| `IbexDevToolsKybEnrollInput` | Input for `kybEnroll` (externalUserId, email, companyRegistrationNumber, ...) |
+| `IbexDevToolsKybEnrollResponse` | KYB session (sessionId, chatbotFullURL) |
+| `IbexDevToolsKySmsVerifiedInput` | Input for `kySmsVerified` (externalUserId, smsVerifiedTelephone?, smsVerifiedAt?) |
+| `IbexDevToolsKySmsVerifiedResponse` | SMS verified result (success, kyCustomerId, smsVerifiedTelephone, smsVerifiedAt) |
+| `IbexDevToolsCompanyCheckInput` | Input for `companyCheck` (siren) |
+| `IbexDevToolsCompanyCheckResponse` | Check result (success, data: { result: "OK" or "KO" }) |
+| `IbexDevToolsSepaTopupInput` | Input for `sepaTopup` (targetIban, targetName?, amount?, amountEur?, channel?, remittanceInfo?) |
+| `IbexDevToolsSepaTopupResponse` | Topup result (success, data: { source, identity, payment }) |
+| `IbexDevToolsCryptoTopupInput` | Input for `cryptoTopup` (externalUserId, wallet?) |
+| `IbexDevToolsCryptoTopupResponse` | Topup result (success?, wallet?, token?, amount?, txHash?) |
 
 ## What Is Not Exposed by This SDK (Current Version)
 
