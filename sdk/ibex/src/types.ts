@@ -770,6 +770,45 @@ export type IbexConfirmSmsResponse = {
   telephone?: string;
 } & JsonObject;
 
+// --- SMS Authentication (wallet=sms) ---
+
+export type IbexSmsSignUpRequest = {
+  telephone: string;
+  phonePolicy?: "frMobile" | "any";
+  email?: string;
+  companyRegistrationNumber?: string;
+};
+
+export type IbexSmsSignUpResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  authMethod: "SMS";
+  hasPasskey: boolean;
+  wallet: "sms";
+  externalUserId: string;
+  sessionId?: string;
+  chatbotFullURL?: string;
+  code?: string;
+} & JsonObject;
+
+export type IbexSmsSignInStep1Request = {
+  telephone: string;
+  phonePolicy?: "frMobile" | "any";
+};
+
+export type IbexSmsSignInStep1Response = {
+  wallet: "sms";
+  code?: string;
+} & JsonObject;
+
+export type IbexSmsSignInConfirmRequest = {
+  telephone: string;
+  code: string;
+  phonePolicy?: "frMobile" | "any";
+};
+
 // --- KYC Iframe ---
 
 export type IbexKycIframeRequest = {

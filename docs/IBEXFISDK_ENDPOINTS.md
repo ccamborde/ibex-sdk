@@ -7,6 +7,7 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 The SDK currently integrates:
 
 - Passkey authentication (sign-in with sign-up fallback)
+- SMS authentication (sign-up KYC/KYB + sign-in two-step OTP)
 - Session refresh
 - User profile read/write (**normalized**: `getMe()` returns a flat, typed `IbexNormalizedProfile`)
 - User wallet and portfolio resources:
@@ -115,6 +116,9 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `authenticateWithPasskey()` | `POST` | `/v1.2/auth/sign-in` |
 | `authenticateWithPasskey()` (fallback) | `GET` | `/v1.2/auth/sign-up` |
 | `authenticateWithPasskey()` (fallback) | `POST` | `/v1.2/auth/sign-up` |
+| `signUpWithSms(request)` | `POST` | `/v1.2/auth/sign-up` (wallet=sms) |
+| `signInWithSms(request)` | `GET` | `/v1.2/auth/sign-in?wallet=sms` |
+| `confirmSmsSignIn(request)` | `POST` | `/v1.2/auth/sign-in` (wallet=sms) |
 | `refreshSession()` / `refreshSessionDetailed()` | `POST` | `/v1.2/auth/refresh` |
 | `getMe()` | `GET` | `/v1.2/users/me` |
 | `getMeRaw()` | `GET` | `/v1.2/users/me` |
@@ -320,6 +324,126 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   - Normally you do not need to call this manually — the SDK auto-refreshes on `401`/`403`
   - Uses single-flight lock: concurrent 401s share one refresh call
   - On refresh failure, the SDK clears session and scoped cache
+
+### 1b) SMS Authentication (`wallet=sms`)
+
+### `signUpWithSms(request)`
+
+- Endpoint: `POST /v1.2/auth/sign-up`
+- Purpose: create a new user account with SMS-based authentication (KYC individual or KYB company). Single POST — no prior GET required.
+- Returns: `IbexSmsSignUpResponse`
+- Auth: PUBLIC (no JWT), but sends rpId headers
+- Request body:
+  - `telephone: string` (required) — E.164 format (e.g. `+33612345678`)
+  - `phonePolicy?: "frMobile" | "any"` — phone validation policy
+  - `email?: string` — required for KYB (company) sign-up
+  - `companyRegistrationNumber?: string` — SIREN (9 digits) for KYB sign-up
+- The SDK automatically adds `wallet: "sms"` to the request body.
+- On success: stores `access_token`, `refresh_token`, and `externalUserId` in session.
+- Response fields:
+  | Field | Description |
+  |---|---|
+  | `access_token` | JWT for authenticated requests |
+  | `refresh_token` | Token for session refresh |
+  | `authMethod` | Always `"SMS"` |
+  | `externalUserId` | User identifier |
+  | `sessionId` | KYC session ID (if applicable) |
+  | `chatbotFullURL` | KYC chatbot URL (if applicable) |
+  | `code` | OTP code (dev/dryRun mode only — never in production) |
+- Example:
+  ```typescript
+  // KYC (individual) sign-up
+  const result = await sdk.signUpWithSms({
+    telephone: "+33612345678",
+    phonePolicy: "frMobile",
+  });
+  console.log("Signed up:", result.externalUserId);
+  // Session is automatically persisted — SDK is ready for authenticated calls
+
+  // KYB (company) sign-up
+  const kybResult = await sdk.signUpWithSms({
+    telephone: "+33612345678",
+    email: "contact@company.fr",
+    companyRegistrationNumber: "123456789",
+  });
+  ```
+- Rate limiting: 3 SMS/day per phone number, 10/day per IP, 100/day per tenant (shared with sign-in).
+- Error responses: `400` invalid phone format or missing fields · `429` rate limit exceeded
+
+### `signInWithSms(request)`
+
+- Endpoint: `GET /v1.2/auth/sign-in?wallet=sms&telephone=...`
+- Purpose: trigger an OTP SMS to the registered phone number (step 1 of SMS sign-in)
+- Returns: `IbexSmsSignInStep1Response`
+- Auth: PUBLIC (no JWT), sends rpId headers
+- Request:
+  - `telephone: string` (required) — E.164 format
+  - `phonePolicy?: "frMobile" | "any"`
+- Does NOT persist session (OTP not yet confirmed).
+- Response fields:
+  | Field | Description |
+  |---|---|
+  | `wallet` | Always `"sms"` |
+  | `code` | OTP code (dev/dryRun mode only — never in production) |
+- Example:
+  ```typescript
+  // Step 1: trigger OTP
+  const step1 = await sdk.signInWithSms({ telephone: "+33612345678" });
+  // In dev mode, step1.code contains the OTP for testing
+  ```
+- Rate limiting: same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant).
+
+### `confirmSmsSignIn(request)`
+
+- Endpoint: `POST /v1.2/auth/sign-in`
+- Purpose: confirm the OTP code and obtain a JWT session (step 2 of SMS sign-in)
+- Returns: `IbexTokens` (`{ accessToken, refreshToken }`)
+- Auth: PUBLIC (no JWT), sends rpId headers
+- Request body:
+  - `telephone: string` (required) — same phone as step 1
+  - `code: string` (required) — 4-8 digit OTP received by SMS
+  - `phonePolicy?: "frMobile" | "any"`
+- The SDK automatically adds `wallet: "sms"` to the request body.
+- On success: stores `access_token`, `refresh_token`, and `externalUserId` in session.
+- Example:
+  ```typescript
+  // Step 2: confirm OTP
+  const tokens = await sdk.confirmSmsSignIn({
+    telephone: "+33612345678",
+    code: "123456",
+  });
+  console.log("Signed in, token:", tokens.accessToken);
+  // Session is persisted — SDK is ready for authenticated calls
+  ```
+- Error responses: `400` invalid/expired code or missing GET step · `404` phone not registered · `429` rate limit exceeded
+
+#### Full SMS sign-in flow example
+
+```typescript
+const sdk = createIbexSdk({ apiBaseUrl: "https://passkeys-testnet.ibex.fi" });
+
+// Step 1: trigger OTP
+const step1 = await sdk.signInWithSms({ telephone: "+33612345678" });
+
+// Step 2: user enters code from SMS (or use step1.code in dev mode)
+const tokens = await sdk.confirmSmsSignIn({
+  telephone: "+33612345678",
+  code: userEnteredCode,
+});
+
+// Authenticated — use SDK normally
+const profile = await sdk.getMe();
+```
+
+#### SMS Auth Types
+
+| Type | Purpose |
+|---|---|
+| `IbexSmsSignUpRequest` | Input for `signUpWithSms` |
+| `IbexSmsSignUpResponse` | Full response from SMS sign-up (tokens + metadata) |
+| `IbexSmsSignInStep1Request` | Input for `signInWithSms` (trigger OTP) |
+| `IbexSmsSignInStep1Response` | Response from step 1 (wallet confirmation + dev code) |
+| `IbexSmsSignInConfirmRequest` | Input for `confirmSmsSignIn` (confirm OTP) |
 
 ### 2) User Profile
 

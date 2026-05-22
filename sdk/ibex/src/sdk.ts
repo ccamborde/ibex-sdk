@@ -43,6 +43,11 @@ import type {
   IbexConfirmEmailResponse,
   IbexConfirmSmsRequest,
   IbexConfirmSmsResponse,
+  IbexSmsSignUpRequest,
+  IbexSmsSignUpResponse,
+  IbexSmsSignInStep1Request,
+  IbexSmsSignInStep1Response,
+  IbexSmsSignInConfirmRequest,
   IbexEmailRecoverRequest,
   IbexEmailRecoverResponse,
   IbexKycIframeRequest,
@@ -217,6 +222,52 @@ export class IbexSdk {
     }
 
     this.setSession(tokens, null);
+    return tokens;
+  }
+
+  async signUpWithSms(request: IbexSmsSignUpRequest): Promise<IbexSmsSignUpResponse> {
+    const rpId = this.resolveRpId();
+    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
+      method: "POST",
+      headers: rpHeaders,
+      body: { wallet: "sms", ...request },
+    });
+    const response = payload as IbexSmsSignUpResponse;
+    const tokens = extractAuthTokens(payload);
+    if (tokens?.accessToken) {
+      const externalUserId = extractExternalUserId(payload);
+      this.setSession(tokens, externalUserId);
+    }
+    return response;
+  }
+
+  async signInWithSms(request: IbexSmsSignInStep1Request): Promise<IbexSmsSignInStep1Response> {
+    const rpId = this.resolveRpId();
+    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
+    if (request.phonePolicy) params.set("phonePolicy", request.phonePolicy);
+    const payload = await this.jsonFetch(`/v1.2/auth/sign-in?${params.toString()}`, {
+      method: "GET",
+      headers: rpHeaders,
+    });
+    return payload as IbexSmsSignInStep1Response;
+  }
+
+  async confirmSmsSignIn(request: IbexSmsSignInConfirmRequest): Promise<IbexTokens> {
+    const rpId = this.resolveRpId();
+    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const payload = await this.jsonFetch("/v1.2/auth/sign-in", {
+      method: "POST",
+      headers: rpHeaders,
+      body: { wallet: "sms", ...request },
+    });
+    const tokens = extractAuthTokens(payload);
+    if (!tokens?.accessToken) {
+      throw new Error("JWT IBEx introuvable dans la réponse SMS sign-in");
+    }
+    const externalUserId = extractExternalUserId(payload);
+    this.setSession(tokens, externalUserId);
     return tokens;
   }
 
