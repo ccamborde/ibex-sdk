@@ -247,6 +247,7 @@ export class IbexSdk {
     const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
     const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
     if (request.phonePolicy) params.set("phonePolicy", request.phonePolicy);
+    if (typeof request.smsDryRun === "boolean") params.set("smsDryRun", String(request.smsDryRun));
     const payload = await this.jsonFetch(`/v1.2/auth/sign-in?${params.toString()}`, {
       method: "GET",
       headers: rpHeaders,

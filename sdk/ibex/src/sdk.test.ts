@@ -355,7 +355,11 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
       resolveRpId,
     });
 
-    const result = await sdk.signInWithSms({ telephone: "+33612345678", phonePolicy: "frMobile" });
+    const result = await sdk.signInWithSms({
+      telephone: "+33612345678",
+      phonePolicy: "frMobile",
+      smsDryRun: false,
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchMock.mock.calls[0]!;
@@ -364,6 +368,7 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
     expect(urlStr).toContain("wallet=sms");
     expect(urlStr).toContain("telephone=%2B33612345678");
     expect(urlStr).toContain("phonePolicy=frMobile");
+    expect(urlStr).toContain("smsDryRun=false");
     expect(opts?.method).toBe("GET");
     expect(result.wallet).toBe("sms");
     expect(result.code).toBe("123456");

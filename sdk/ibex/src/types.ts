@@ -775,6 +775,7 @@ export type IbexConfirmSmsResponse = {
 export type IbexSmsSignUpRequest = {
   telephone: string;
   phonePolicy?: "frMobile" | "any";
+  smsDryRun?: boolean;
   email?: string;
   companyRegistrationNumber?: string;
 };
@@ -796,6 +797,7 @@ export type IbexSmsSignUpResponse = {
 export type IbexSmsSignInStep1Request = {
   telephone: string;
   phonePolicy?: "frMobile" | "any";
+  smsDryRun?: boolean;
 };
 
 export type IbexSmsSignInStep1Response = {

@@ -2,6 +2,12 @@
 
 ## Changelog
 
+- **2026-05-29** `modify` `POST /v1.2/iban/create` — `safeAddress` is now optional; when omitted, the API selects the user's default Safe (prefers current chain)
+- **2026-05-29** `modify` `GET /v1.2/auth/sign-in` (wallet=sms) — added `smsDryRun` query parameter; default dry-run outside production/preprod and bypassed SMS flood limits in dry-run mode
+- **2026-05-28** `modify` `POST /v1.2/auth/sign-up` (wallet=sms) — added `smsDryRun` parameter to control SMS sending in non-production
+- **2026-05-21** `create` `PATCH /v1.2/sepa/iban/modify` — new endpoint to update the label of an existing IBAN
+- **2026-05-21** `modify` `POST /v1.2/sepa/iban/add` — added optional `label` parameter
+- **2026-05-21** `modify` `GET /v1.2/sepa/iban` — response now includes `label` field
 - **2026-05-21** `create` `POST /v1.2/auth/sign-up` (wallet=sms) — new SMS-based signup (KYC & KYB), single POST creates user + triggers IbexSafe phone verification
 - **2026-05-21** `create` `GET /v1.2/auth/sign-in` (wallet=sms) — new SMS-based sign-in step 1, triggers OTP via IbexSafe
 - **2026-05-21** `create` `POST /v1.2/auth/sign-in` (wallet=sms) — new SMS-based sign-in step 2, confirms OTP and returns JWT
@@ -318,6 +324,7 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 | `wallet` | string | Yes | Must be `"sms"` |
 | `telephone` | string | Yes | E.164 format (e.g. `+33612345678`) |
 | `phonePolicy` | string | No | `"frMobile"` or `"any"` (default) |
+| `smsDryRun` | boolean | No | If `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production. |
 
 **Body (KYB — company):**
 
@@ -328,6 +335,7 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 | `email` | string | Yes | Contact email |
 | `companyRegistrationNumber` | string | Yes | SIREN (9 digits) |
 | `phonePolicy` | string | No | `"frMobile"` or `"any"` |
+| `smsDryRun` | boolean | No | If `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production. |
 
 **200 Response:**
 
@@ -369,6 +377,7 @@ Host: app.ibex.fi
 | `wallet` | string | Yes | Must be `"sms"` |
 | `telephone` | string | Yes | E.164 format |
 | `phonePolicy` | string | No | `"frMobile"` or `"any"` |
+| `smsDryRun` | boolean | No | If `false`, enforce rate limits and send a real SMS. Default: `true` outside production/preprod. |
 
 Triggers an SMS OTP to the registered phone number via IbexSafe.
 
@@ -378,9 +387,9 @@ Triggers an SMS OTP to the registered phone number via IbexSafe.
 { "wallet": "sms" }
 ```
 
-> **Development only (`NODE_ENV=development`):** When IbexSafe operates in dryRun mode (no real SMS sent), the response includes a `code` field: `{ "wallet": "sms", "code": "123456" }`. This field is **never** returned in production environments.
+> **Dry-run behavior:** When dry-run is active (`smsDryRun=true`, default outside production/preprod), the response includes a `code` field: `{ "wallet": "sms", "code": "123456" }` for testing. In production/preprod, dry-run is ignored upstream and no code is returned.
 
-**Rate limiting:** Same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant).
+**Rate limiting:** Same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant) **only when `smsDryRun=false`**.
 
 **Step 2 — Confirm OTP:**
 
@@ -1944,7 +1953,10 @@ Starts IBAN creation for a Safe and provider (`MONERIUM` or `TRACTIAL`). This en
 
 **Headers:** JWT.
 
-**Body (required):** `{ "safeAddress", "provider", "chainId?" }`
+**Body:** `{ "provider", "safeAddress?", "chainId?" }`
+
+- `provider` is required (`MONERIUM` or `TRACTIAL`).
+- `safeAddress` is optional. If omitted, the API resolves a default Safe owned by the authenticated user (preferring the requested/effective chain when available).
 
 **Response (200):** includes `userOpHash` and `credentialRequestOptions`.
 
@@ -4066,6 +4078,7 @@ Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quot
 | `holderName`   | string | Yes | Name of the IBAN holder (used later as the reference value for VOP matching) |
 | `safeAddress`  | string | No  | Optional Safe wallet to associate with this IBAN. Must belong to the authenticated user (404 otherwise) |
 | `blockchainId` | number | No  | Optional chain id stored alongside `safeAddress` |
+| `label`        | string | No  | Free-text label for this IBAN (e.g. "Savings account", "Main"). Max 100 chars, alphanumeric + spaces/dots/dashes/underscores only. Modifiable later via `PATCH /v1.2/sepa/iban/modify`. |
 
 **Response (200):**
 
@@ -4078,6 +4091,7 @@ Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quot
     "formatted": "FR76 1558 9275 6909 3150 5605 139",
     "bic": "AGRIFRPPXXX",
     "holderName": "Alice Martin",
+    "label": "Main account",
     "externStack": "IBEXFIAPI",
     "accountNumber": "09315056051",
     "bankCode": "15589",
@@ -4086,7 +4100,7 @@ Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quot
     "status": "active",
     "safeAddress": "0xd676…",
     "blockchainId": 100
-  },
+  }
 }
 ```
 
@@ -4104,10 +4118,37 @@ Returns the list of IBAN entries available in IBEXSAFE for the authenticated use
 {
   "success": true,
   "data": [
-    { "id": 42, "iban": "FR76…", "bic": "AGRIFRPPXXX", "holderName": "Alice Martin", "status": "active", "safeAddress": "0xd676…", "blockchainId": 100, "dateUsed": "2026-04-22T10:00:00.000Z" }
+    { "id": 42, "iban": "FR76…", "bic": "AGRIFRPPXXX", "holderName": "Alice Martin", "label": "Main account", "status": "active", "safeAddress": "0xd676…", "blockchainId": 100, "dateUsed": "2026-04-22T10:00:00.000Z" }
   ]
 }
 ```
+
+---
+
+### PATCH /v1.2/sepa/iban/modify
+
+Update the `label` of an existing IBAN owned by the authenticated user. Pass an empty string to clear the label.
+
+**Request body:**
+
+| Field   | Type   | Required | Description |
+|---------|--------|----------|-------------|
+| `iban`  | string | Yes      | The IBAN to modify (must belong to the authenticated user) |
+| `label` | string | Yes      | New label value. Max 100 chars, alphanumeric + spaces/dots/dashes/underscores only. Empty string clears the label. |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "iban": "FR7615589275690931505605139",
+    "label": "Savings account"
+  }
+}
+```
+
+Errors: `400` missing or invalid fields · `403` IBAN does not belong to the authenticated user · `404` IBAN not found upstream.
 
 ---
 

@@ -2,6 +2,11 @@
 
 This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sdk/ibex`) and explains how client applications should use them through SDK methods.
 
+## Changelog
+
+- **2026-05-29** `modify` `signInWithSms(request)` -> `GET /v1.2/auth/sign-in?wallet=sms`: added optional `smsDryRun` query parameter in SDK request type and transport.
+- **2026-05-29** `note` `POST /v1.2/iban/create`: API now accepts optional `safeAddress`, but this endpoint is not currently exposed as a dedicated SDK method (SDK IBAN creation stays on `addSepaIban()` -> `POST /v1.2/sepa/iban/add`).
+
 ## Scope
 
 The SDK currently integrates:
@@ -336,6 +341,7 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 - Request body:
   - `telephone: string` (required) — E.164 format (e.g. `+33612345678`)
   - `phonePolicy?: "frMobile" | "any"` — phone validation policy
+  - `smsDryRun?: boolean` — if `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production.
   - `email?: string` — required for KYB (company) sign-up
   - `companyRegistrationNumber?: string` — SIREN (9 digits) for KYB sign-up
 - The SDK automatically adds `wallet: "sms"` to the request body.
@@ -379,7 +385,11 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 - Request:
   - `telephone: string` (required) — E.164 format
   - `phonePolicy?: "frMobile" | "any"`
+  - `smsDryRun?: boolean` — if `false`, force real SMS delivery when environment allows it
 - Does NOT persist session (OTP not yet confirmed).
+- Behavior:
+  - If `smsDryRun` is omitted, server default applies (dry-run by default outside production/preprod).
+  - In dry-run mode, flood SMS limits are bypassed and `code` can be returned in the response.
 - Response fields:
   | Field | Description |
   |---|---|
@@ -388,7 +398,10 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 - Example:
   ```typescript
   // Step 1: trigger OTP
-  const step1 = await sdk.signInWithSms({ telephone: "+33612345678" });
+  const step1 = await sdk.signInWithSms({
+    telephone: "+33612345678",
+    smsDryRun: false, // optional: request a real SMS when allowed by environment
+  });
   // In dev mode, step1.code contains the OTP for testing
   ```
 - Rate limiting: same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant).
@@ -1587,6 +1600,7 @@ const profile = await sdk.getMe();
 
 - Endpoint: `POST /v1.2/sepa/iban/add`
 - Purpose: create an IBAN for the authenticated user (subject to per-user quota)
+- Note: the API route `POST /v1.2/iban/create` exists but is not currently wrapped by a dedicated SDK method in `sdk/ibex`.
 - Returns: `{ success: boolean, data: { iban metadata } }`
 - Request body:
   - `holderName: string` (required)
