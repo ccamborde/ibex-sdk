@@ -683,6 +683,79 @@ describe("IbexSdk SEPA endpoints", () => {
     expect(headers["X-IBEx-Auth"]).toBe("Bearer access-123");
   });
 
+  it("addSepaIban sends label in request body", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(200, { success: true, data: { id: 42, iban: "FR76...", label: "Main account" } }),
+    );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    await sdk.addSepaIban({ holderName: "Alice Martin", label: "Main account" });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(body.holderName).toBe("Alice Martin");
+    expect(body.label).toBe("Main account");
+  });
+
+  it("confirmSepaIbanAdd sends PUT with approvalId and credential", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(200, {
+        success: true,
+        data: {
+          approvalId: "approval-1",
+          approvalHash: "hash-1",
+          iban: { id: 42, iban: "FR76...", label: "Savings" },
+        },
+      }),
+    );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    const result = await sdk.confirmSepaIbanAdd({
+      approvalId: "approval-1",
+      credential: { id: "cred-1", type: "public-key", rawId: "raw-1" },
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/sepa/iban/add");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PUT");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(body.approvalId).toBe("approval-1");
+    expect(body.credential.id).toBe("cred-1");
+    expect(result.data?.iban?.iban).toBe("FR76...");
+  });
+
+  it("modifySepaIbanLabel sends PATCH with iban and label", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(200, { success: true, data: { iban: "FR76...", label: "Savings account" } }),
+    );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+    });
+
+    sdk.setSession({ accessToken: "access-123", refreshToken: "refresh-123" }, null);
+    const result = await sdk.modifySepaIbanLabel({ iban: "FR76...", label: "Savings account" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://passkeys-testnet.ibex.fi/v1.2/sepa/iban/modify");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PATCH");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(body.iban).toBe("FR76...");
+    expect(body.label).toBe("Savings account");
+    expect(result.data?.label).toBe("Savings account");
+  });
+
   it("refreshes and retries when sepa endpoint returns 401", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi

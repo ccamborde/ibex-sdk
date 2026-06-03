@@ -1,5 +1,6 @@
 import { browserStorage } from "./storage";
 import { IbexRealtimeClient } from "./realtime";
+import { IbexDevToolsClient } from "./devtools";
 import { defaultResolveRpId, extractAuthTokens, extractExternalUserId, isAuthStatusError, normalizeBalancesResponse, normalizeTransactionsResponse, normalizeUserProfileResponse, normalizeSignInOptions, normalizeSignUpOptions, normalizeUsersMePayload, serializeAssertion, serializeAttestation, } from "./utils";
 export const IBEX_TOKEN_KEY = "ibex_jwt";
 export const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
@@ -110,6 +111,52 @@ export class IbexSdk {
             throw new Error("JWT IBEx introuvable dans la réponse");
         }
         this.setSession(tokens, null);
+        return tokens;
+    }
+    async signUpWithSms(request) {
+        const rpId = this.resolveRpId();
+        const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
+            method: "POST",
+            headers: rpHeaders,
+            body: { wallet: "sms", ...request },
+        });
+        const response = payload;
+        const tokens = extractAuthTokens(payload);
+        if (tokens?.accessToken) {
+            const externalUserId = extractExternalUserId(payload);
+            this.setSession(tokens, externalUserId);
+        }
+        return response;
+    }
+    async signInWithSms(request) {
+        const rpId = this.resolveRpId();
+        const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
+        if (request.phonePolicy)
+            params.set("phonePolicy", request.phonePolicy);
+        if (typeof request.smsDryRun === "boolean")
+            params.set("smsDryRun", String(request.smsDryRun));
+        const payload = await this.jsonFetch(`/v1.2/auth/sign-in?${params.toString()}`, {
+            method: "GET",
+            headers: rpHeaders,
+        });
+        return payload;
+    }
+    async confirmSmsSignIn(request) {
+        const rpId = this.resolveRpId();
+        const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        const payload = await this.jsonFetch("/v1.2/auth/sign-in", {
+            method: "POST",
+            headers: rpHeaders,
+            body: { wallet: "sms", ...request },
+        });
+        const tokens = extractAuthTokens(payload);
+        if (!tokens?.accessToken) {
+            throw new Error("JWT IBEx introuvable dans la réponse SMS sign-in");
+        }
+        const externalUserId = extractExternalUserId(payload);
+        this.setSession(tokens, externalUserId);
         return tokens;
     }
     async refreshSession() {
@@ -285,6 +332,21 @@ export class IbexSdk {
         }));
         return payload;
     }
+    // --- SMS Verification ---
+    async validateSms(request) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/validate-sms", token, {
+            method: "POST",
+            body: request,
+        }));
+        return payload;
+    }
+    async confirmSms(request) {
+        const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/users/me/confirm-sms", token, {
+            method: "POST",
+            body: request,
+        }));
+        return payload;
+    }
     // --- KYC Iframe ---
     async getKycIframeUrl(request = {}) {
         const payload = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/auth/iframe", token, {
@@ -350,6 +412,20 @@ export class IbexSdk {
         const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/iban/add", token, {
             method: "POST",
             body: payload,
+        }));
+        return response;
+    }
+    async confirmSepaIbanAdd(request) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/iban/add", token, {
+            method: "PUT",
+            body: request,
+        }));
+        return response;
+    }
+    async modifySepaIbanLabel(request) {
+        const response = await this.withRefreshOnUnauthorized(async (token) => this.authenticatedJsonFetch("/v1.2/sepa/iban/modify", token, {
+            method: "PATCH",
+            body: request,
         }));
         return response;
     }
@@ -529,6 +605,14 @@ export class IbexSdk {
             safeAddress,
             operations: [{ type: "MORPHO_WITHDRAW", ...params }],
             ...options,
+        });
+    }
+    // --- DevTools ---
+    createDevToolsClient(config) {
+        return new IbexDevToolsClient({
+            apiBaseUrl: config.apiBaseUrl ?? this.apiBaseUrl,
+            fetchImpl: this.fetchImpl,
+            ...config,
         });
     }
     // --- Realtime (WebSocket) ---

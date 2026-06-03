@@ -23,6 +23,10 @@ import type {
   IbexSafePrepareResponse,
   IbexSepaAddIbanRequest,
   IbexSepaAddIbanResponse,
+  IbexSepaConfirmIbanAddRequest,
+  IbexSepaConfirmIbanAddResponse,
+  IbexSepaModifyIbanLabelRequest,
+  IbexSepaModifyIbanLabelResponse,
   IbexSepaCancelMandateResponse,
   IbexSepaConfirmPaymentRequest,
   IbexSepaConfirmPaymentResponse,
@@ -620,6 +624,26 @@ export class IbexSdk {
       }),
     );
     return response as IbexSepaAddIbanResponse;
+  }
+
+  async confirmSepaIbanAdd(request: IbexSepaConfirmIbanAddRequest): Promise<IbexSepaConfirmIbanAddResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/iban/add", token, {
+        method: "PUT",
+        body: request,
+      }),
+    );
+    return response as IbexSepaConfirmIbanAddResponse;
+  }
+
+  async modifySepaIbanLabel(request: IbexSepaModifyIbanLabelRequest): Promise<IbexSepaModifyIbanLabelResponse> {
+    const response = await this.withRefreshOnUnauthorized(async (token) =>
+      this.authenticatedJsonFetch("/v1.2/sepa/iban/modify", token, {
+        method: "PATCH",
+        body: request,
+      }),
+    );
+    return response as IbexSepaModifyIbanLabelResponse;
   }
 
   async getSepaIbans(): Promise<IbexSepaIbansResponse> {

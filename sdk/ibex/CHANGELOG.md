@@ -2,6 +2,26 @@
 
 All notable changes to this SDK adaptation are documented in this file.
 
+## [0.2.0] - 2026-06-03
+
+### Added
+
+- **`confirmSepaIbanAdd(request)`** — new method (`PUT /v1.2/sepa/iban/add`) to confirm IBAN creation via WebAuthn assertion when `isSepaIbanAddWebauthnEnabled=TRUE`.
+- **`modifySepaIbanLabel(request)`** — new method (`PATCH /v1.2/sepa/iban/modify`) to update the label of an existing IBAN.
+- New types: `IbexSepaAddIbanApproval`, `IbexSepaConfirmIbanAddRequest`, `IbexSepaConfirmIbanAddResponse`, `IbexSepaModifyIbanLabelRequest`, `IbexSepaModifyIbanLabelResponse`.
+
+### Changed
+
+- **`addSepaIban(payload)`** — response type updated to reflect dual-mode behavior: returns `IbexSepaAddIbanApproval` (WebAuthn mode) or `IbexSepaIban` (direct mode) depending on domain flag `isSepaIbanAddWebauthnEnabled`.
+- **`IbexSepaAddIbanRequest`** — added optional `label` field.
+- **`IbexSepaIban`** — added `label` field (returned by `GET /v1.2/sepa/iban` and creation endpoints).
+
+### Removed
+
+- `POST /v1.2/iban/create` — deprecated provider-agnostic flow removed from API v1.2 (was never exposed as a dedicated SDK method).
+
+---
+
 ## [0.1.2] - 2026-04-27
 
 ### Breaking – Endpoint migration to `/v1.2/`

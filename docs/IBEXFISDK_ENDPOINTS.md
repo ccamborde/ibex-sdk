@@ -4,6 +4,11 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 
 ## Changelog
 
+- **2026-06-03** `modify` `addSepaIban(payload)` -> `POST /v1.2/sepa/iban/add`: behavior now depends on domain flag `isSepaIbanAddWebauthnEnabled`. Added `label` optional parameter to request body.
+- **2026-06-03** `create` `confirmSepaIbanAdd(request)` -> `PUT /v1.2/sepa/iban/add`: new method to confirm IBAN creation via WebAuthn assertion (used when `isSepaIbanAddWebauthnEnabled=TRUE`).
+- **2026-06-03** `create` `modifySepaIbanLabel(request)` -> `PATCH /v1.2/sepa/iban/modify`: new method to update the label of an existing IBAN.
+- **2026-06-03** `modify` `IbexSepaIban` type: added `label` field.
+- **2026-06-03** `remove` `POST /v1.2/iban/create`: deprecated endpoint removed from API v1.2 (was never exposed as a dedicated SDK method).
 - **2026-05-29** `modify` `signInWithSms(request)` -> `GET /v1.2/auth/sign-in?wallet=sms`: added optional `smsDryRun` query parameter in SDK request type and transport.
 - **2026-05-29** `note` `POST /v1.2/iban/create`: API now accepts optional `safeAddress`, but this endpoint is not currently exposed as a dedicated SDK method (SDK IBAN creation stays on `addSepaIban()` -> `POST /v1.2/sepa/iban/add`).
 
@@ -40,7 +45,7 @@ The SDK currently integrates:
 - Swap quote (get DEX quotes from COWSWAP / 1INCH)
 - Unified route engine (capabilities, quote, status for swap + bridge)
 - SEPA resources:
-  - IBAN add/list
+  - IBAN add (direct + WebAuthn two-step flow) / confirm / modify label / list
   - payment intent/confirmation
   - transactions list/detail
   - mandates create/list/detail/status/cancel
@@ -157,6 +162,8 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `getKycIframeUrl(request?)` | `POST` | `/v1.2/auth/iframe` |
 | `recoverWithEmail(request)` | `POST` | `/v1.2/auth/email/recover` |
 | `addSepaIban(payload)` | `POST` | `/v1.2/sepa/iban/add` |
+| `confirmSepaIbanAdd(request)` | `PUT` | `/v1.2/sepa/iban/add` |
+| `modifySepaIbanLabel(request)` | `PATCH` | `/v1.2/sepa/iban/modify` |
 | `getSepaIbans()` | `GET` | `/v1.2/sepa/iban` |
 | `createSepaPaymentIntent(payload)` | `POST` | `/v1.2/sepa/payments` |
 | `confirmSepaPayment(payload)` | `PUT` | `/v1.2/sepa/payments` |
@@ -1600,25 +1607,50 @@ const profile = await sdk.getMe();
 
 - Endpoint: `POST /v1.2/sepa/iban/add`
 - Purpose: create an IBAN for the authenticated user (subject to per-user quota)
-- Note: the API route `POST /v1.2/iban/create` exists but is not currently wrapped by a dedicated SDK method in `sdk/ibex`.
-- Returns: `{ success: boolean, data: { iban metadata } }`
+- Behavior depends on domain flag `isSepaIbanAddWebauthnEnabled`:
+  - `TRUE` (default): passkey-gated mode — returns `approvalId` + `credentialRequestOptions`. Actual creation requires a follow-up call to `confirmSepaIbanAdd()`.
+  - `FALSE`: direct mode — executes IBAN creation immediately and returns the created IBAN.
+- Returns: `{ success: boolean, data: IbexSepaIban | IbexSepaAddIbanApproval }`
 - Request body:
   - `holderName: string` (required)
   - `safeAddress?: string` — must belong to the authenticated user
   - `blockchainId?: number`
-- Example:
+  - `label?: string` — free-text label (max 100 chars)
+- Example (direct mode):
   ```typescript
   const result = await sdk.addSepaIban({
     holderName: "Alice Martin",
     safeAddress: "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
-    blockchainId: 421614
+    blockchainId: 421614,
+    label: "Main account"
   });
   console.log("IBAN created:", result.data.iban);
   // "FR7615589275690931505605139"
-  console.log("BIC:", result.data.bic);
-  // "AGRIFRPPXXX"
   ```
-- Example response:
+- Example (WebAuthn mode — two-step flow):
+  ```typescript
+  const intent = await sdk.addSepaIban({ holderName: "Alice Martin", label: "Savings" });
+  // intent.data contains approvalId + credentialRequestOptions
+  const assertion = await navigator.credentials.get({ publicKey: intent.data.credentialRequestOptions });
+  const confirmed = await sdk.confirmSepaIbanAdd({
+    approvalId: intent.data.approvalId,
+    credential: serializeAssertion(assertion)
+  });
+  console.log("IBAN created:", confirmed.data.iban.iban);
+  ```
+- Example response (WebAuthn mode):
+  ```json
+  {
+    "success": true,
+    "data": {
+      "approvalId": "a87a3c1f-cc5d-4d1a-91ea-2d4f7c4fdd8c",
+      "approvalHash": "53ca9be6c85f9f1b5c8f9e56f67b7af4f14966e2f78f1336af0b8db7a2043db9",
+      "expiresAt": "2026-06-01T14:24:00.000Z",
+      "credentialRequestOptions": { "challenge": "Y2hhbGxlbmdl...", "rpId": "app.ibex.fi" }
+    }
+  }
+  ```
+- Example response (direct mode):
   ```json
   {
     "success": true,
@@ -1628,10 +1660,78 @@ const profile = await sdk.getMe();
       "formatted": "FR76 1558 9275 6909 3150 5605 139",
       "bic": "AGRIFRPPXXX",
       "holderName": "Alice Martin",
+      "label": "Main account",
       "status": "active",
       "safeAddress": "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
       "blockchainId": 421614,
       "dateUsed": "2026-05-14T10:00:00.000Z"
+    }
+  }
+  ```
+
+### `confirmSepaIbanAdd(request)`
+
+- Endpoint: `PUT /v1.2/sepa/iban/add`
+- Purpose: confirm IBAN creation by verifying a WebAuthn assertion (used only when `isSepaIbanAddWebauthnEnabled=TRUE`)
+- Request body:
+  - `approvalId: string` — returned by `addSepaIban()` in WebAuthn mode
+  - `credential: object` — serialized WebAuthn assertion from `navigator.credentials.get()`
+- Returns: `{ success: boolean, data: { approvalId, approvalHash, iban: IbexSepaIban } }`
+- Example:
+  ```typescript
+  const confirmed = await sdk.confirmSepaIbanAdd({
+    approvalId: "a87a3c1f-cc5d-4d1a-91ea-2d4f7c4fdd8c",
+    credential: { id: "...", type: "public-key", rawId: "...", response: { ... } }
+  });
+  console.log("IBAN:", confirmed.data.iban.iban);
+  console.log("Label:", confirmed.data.iban.label);
+  ```
+- Example response:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "approvalId": "a87a3c1f-cc5d-4d1a-91ea-2d4f7c4fdd8c",
+      "approvalHash": "53ca9be6...",
+      "iban": {
+        "id": 42,
+        "iban": "FR7615589275690931505605139",
+        "formatted": "FR76 1558 9275 6909 3150 5605 139",
+        "bic": "AGRIFRPPXXX",
+        "holderName": "Alice Martin",
+        "label": "Main account",
+        "status": "active",
+        "safeAddress": "0xd676...",
+        "blockchainId": 100
+      }
+    }
+  }
+  ```
+
+### `modifySepaIbanLabel(request)`
+
+- Endpoint: `PATCH /v1.2/sepa/iban/modify`
+- Purpose: update the label of an existing IBAN owned by the authenticated user
+- Request body:
+  - `iban: string` — the IBAN to modify (must belong to the authenticated user)
+  - `label: string` — new label value (max 100 chars, empty string clears the label)
+- Returns: `{ success: boolean, data: { iban, label } }`
+- Example:
+  ```typescript
+  const result = await sdk.modifySepaIbanLabel({
+    iban: "FR7615589275690931505605139",
+    label: "Savings account"
+  });
+  console.log("Updated label:", result.data.label);
+  // "Savings account"
+  ```
+- Example response:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "iban": "FR7615589275690931505605139",
+      "label": "Savings account"
     }
   }
   ```
@@ -1641,11 +1741,12 @@ const profile = await sdk.getMe();
 - Endpoint: `GET /v1.2/sepa/iban`
 - Purpose: list all IBANs owned by the authenticated user
 - Returns: `{ success: boolean, data: [ iban entries ] }`
+- Note: response now includes `label` field on each IBAN entry
 - Example:
   ```typescript
   const ibans = await sdk.getSepaIbans();
   for (const entry of ibans.data) {
-    console.log(`${entry.iban} (${entry.status}) — ${entry.holderName}`);
+    console.log(`${entry.iban} (${entry.status}) — ${entry.holderName} [${entry.label || "no label"}]`);
   }
   ```
 - Example response:
@@ -1658,6 +1759,7 @@ const profile = await sdk.getMe();
         "iban": "FR7615589275690931505605139",
         "bic": "AGRIFRPPXXX",
         "holderName": "Alice Martin",
+        "label": "Main account",
         "status": "active",
         "safeAddress": "0x391ff3676e591b1772C5f89B0a6C569EE42d30b8",
         "blockchainId": 421614,

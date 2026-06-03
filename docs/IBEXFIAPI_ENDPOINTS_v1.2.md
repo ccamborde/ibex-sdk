@@ -2,7 +2,9 @@
 
 ## Changelog
 
-- **2026-05-29** `modify` `POST /v1.2/iban/create` — `safeAddress` is now optional; when omitted, the API selects the user's default Safe (prefers current chain)
+- **2026-06-01** `remove` `POST /v1.2/iban/create` — deprecated provider-agnostic flow removed from v1.2
+- **2026-06-01** `modify` `POST /v1.2/sepa/iban/add` — behavior is now controlled by domain flag `isSepaIbanAddWebauthnEnabled` (direct POST when `FALSE`, approval challenge when `TRUE`)
+- **2026-06-01** `create` `PUT /v1.2/sepa/iban/add` — confirms WebAuthn and executes upstream IBAN creation in IBEXSAFE
 - **2026-05-29** `modify` `GET /v1.2/auth/sign-in` (wallet=sms) — added `smsDryRun` query parameter; default dry-run outside production/preprod and bypassed SMS flood limits in dry-run mode
 - **2026-05-28** `modify` `POST /v1.2/auth/sign-up` (wallet=sms) — added `smsDryRun` parameter to control SMS sending in non-production
 - **2026-05-21** `create` `PATCH /v1.2/sepa/iban/modify` — new endpoint to update the label of an existing IBAN
@@ -1938,27 +1940,16 @@ Confirms the SMS verification code sent to the phone number. On success, stores 
 
 ---
 
-## IBAN (provider-agnostic)
+## IBAN
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/v1.2/iban/create` | JWT | Create flow starter (returns WebAuthn challenge/options) |
 | GET | `/v1.2/iban/transactions` | JWT | IBAN/FIAT transactions are available via `GET /v1.2/users/me/transactions` (use `iban` query param for scoped view) |
 | GET | `/v1.2/iban/balances` | JWT | IBAN/FIAT balances are available via `GET /v1.2/users/me/balances` (use `iban` query param for scoped view) |
 | POST | `/v1.2/iban/revoke` | JWT | Currently returns `501 Not Implemented` |
 
-### POST /v1.2/iban/create
-
-Starts IBAN creation for a Safe and provider (`MONERIUM` or `TRACTIAL`). This endpoint prepares a Safe operation and returns `credentialRequestOptions` for WebAuthn signing.
-
-**Headers:** JWT.
-
-**Body:** `{ "provider", "safeAddress?", "chainId?" }`
-
-- `provider` is required (`MONERIUM` or `TRACTIAL`).
-- `safeAddress` is optional. If omitted, the API resolves a default Safe owned by the authenticated user (preferring the requested/effective chain when available).
-
-**Response (200):** includes `userOpHash` and `credentialRequestOptions`.
+`POST /v1.2/iban/create` has been removed.  
+Use `POST /v1.2/sepa/iban/add` for IBAN creation: direct execution when `isSepaIbanAddWebauthnEnabled=FALSE`, or `POST` + `PUT /v1.2/sepa/iban/add` with WebAuthn confirmation when `isSepaIbanAddWebauthnEnabled=TRUE`.
 
 ---
 
@@ -4053,6 +4044,7 @@ Ownership of an IBAN is enforced by checking the IBAN data available in IBEXSAFE
 | Method | Path | Auth | Available in |
 |--------|------|------|----------------|
 | POST   | `/v1.2/sepa/iban/add`            | JWT | **v1.2** |
+| PUT    | `/v1.2/sepa/iban/add`            | JWT | **v1.2** |
 | GET    | `/v1.2/sepa/iban`                | JWT | **v1.2** |
 | POST   | `/v1.2/sepa/payments`            | JWT | **v1.2** |
 | PUT    | `/v1.2/sepa/payments`            | JWT | **v1.2** |
@@ -4068,8 +4060,10 @@ Ownership of an IBAN is enforced by checking the IBAN data available in IBEXSAFE
 
 ### POST /v1.2/sepa/iban/add
 
-Create an IBAN via IBEXSAFE (`POST /iban/add`) for the authenticated user and expose it to the v1.2 SEPA flow.
-Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quota (`Domain.maxIbanPerUser`, default `2`).
+Creates an IBAN for the authenticated user. Behavior depends on domain flag `isSepaIbanAddWebauthnEnabled`:
+
+- `TRUE` (default): passkey-gated mode — this endpoint returns `approvalId` + `credentialRequestOptions`; actual creation is done by `PUT /v1.2/sepa/iban/add`.
+- `FALSE`: direct mode — this endpoint executes IBEXSAFE `POST /iban/add` immediately and returns the created IBAN payload (no `PUT` required).
 
 **Request body:**
 
@@ -4080,7 +4074,26 @@ Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quot
 | `blockchainId` | number | No  | Optional chain id stored alongside `safeAddress` |
 | `label`        | string | No  | Free-text label for this IBAN (e.g. "Savings account", "Main"). Max 100 chars, alphanumeric + spaces/dots/dashes/underscores only. Modifiable later via `PATCH /v1.2/sepa/iban/modify`. |
 
-**Response (200):**
+**Response (200) — WebAuthn mode (`isSepaIbanAddWebauthnEnabled=TRUE`):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "approvalId": "a87a3c1f-cc5d-4d1a-91ea-2d4f7c4fdd8c",
+    "approvalHash": "53ca9be6c85f9f1b5c8f9e56f67b7af4f14966e2f78f1336af0b8db7a2043db9",
+    "expiresAt": "2026-06-01T14:24:00.000Z",
+    "credentialRequestOptions": {
+      "challenge": "Y2hhbGxlbmdl...",
+      "rpId": "app.ibex.fi"
+    }
+  }
+}
+```
+
+Errors: `400` missing/invalid fields · `404` `safeAddress` provided but does not belong to the user · `429` quota reached (`maxIbanPerUser`).
+
+**Response (200) — direct mode (`isSepaIbanAddWebauthnEnabled=FALSE`):**
 
 ```json
 {
@@ -4104,7 +4117,49 @@ Before calling IBEXSAFE, the API enforces a domain-configured per-user IBAN quot
 }
 ```
 
-Errors: `400` missing `holderName` · `404` `safeAddress` provided but does not belong to the user · `429` quota reached (`maxIbanPerUser`) · upstream IBEXSAFE errors are forwarded (`403`/`404`/`409`/`502`, etc.).
+---
+
+### PUT /v1.2/sepa/iban/add
+
+Confirms an IBAN creation intent by verifying a WebAuthn assertion, then executes IBEXSAFE `POST /iban/add`.
+This endpoint is used only when `isSepaIbanAddWebauthnEnabled=TRUE`.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `approvalId` | string | Yes | Approval identifier returned by `POST /v1.2/sepa/iban/add` |
+| `credential` | object | Yes | WebAuthn assertion generated by the client |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "approvalId": "a87a3c1f-cc5d-4d1a-91ea-2d4f7c4fdd8c",
+    "approvalHash": "53ca9be6c85f9f1b5c8f9e56f67b7af4f14966e2f78f1336af0b8db7a2043db9",
+    "iban": {
+      "id": 42,
+      "iban": "FR7615589275690931505605139",
+      "formatted": "FR76 1558 9275 6909 3150 5605 139",
+      "bic": "AGRIFRPPXXX",
+      "holderName": "Alice Martin",
+      "label": "Main account",
+      "externStack": "IBEXFIAPI",
+      "accountNumber": "09315056051",
+      "bankCode": "15589",
+      "branchCode": "27569",
+      "dateUsed": "2026-04-22T10:00:00.000Z",
+      "status": "active",
+      "safeAddress": "0xd676…",
+      "blockchainId": 100
+    }
+  }
+}
+```
+
+Errors: `400` invalid/missing `approvalId` or `credential` · `401`/`403` invalid signer/challenge · `404` approval not found or `safeAddress` not owned · `409` already consumed/expired approval · `429` quota reached · upstream IBEXSAFE errors are forwarded (`403`/`404`/`409`/`502`, etc.).
 
 ---
 

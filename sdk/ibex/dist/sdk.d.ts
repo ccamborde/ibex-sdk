@@ -1,5 +1,6 @@
 import { IbexRealtimeClient } from "./realtime";
-import type { IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexRouteCapabilitiesQuery, IbexRouteCapabilitiesResponse, IbexRouteQuoteRequest, IbexRouteQuoteResponse, IbexRouteStatusResponse, IbexSafeEnableRecoveryOperation, IbexSafeExecuteRequest, IbexSafeExecuteResponse, IbexSafeOperationsRequest, IbexSafePrepareResponse, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexChainsResponse, IbexConfirmEmailRequest, IbexConfirmEmailResponse, IbexEmailRecoverRequest, IbexEmailRecoverResponse, IbexKycIframeRequest, IbexKycIframeResponse, IbexNormalizedBalances, IbexNormalizedProfile, IbexNormalizedTransactions, IbexRecoveryStatusResponse, IbexSdkConfig, IbexSwapQuoteQuery, IbexSwapQuoteResponse, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexLendingQuery, IbexTokensQuery, IbexUserLendingResponse, IbexUserOperationsQuery, IbexUserOperationsResponse, IbexUserProfile, IbexUserSignersResponse, IbexUserTokensResponse, IbexVaultsQuery, IbexVaultsResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, IbexValidateEmailRequest, IbexValidateEmailResponse, IbexWsConfig, IbexWsReconnectPolicy, JsonObject } from "./types";
+import { IbexDevToolsClient } from "./devtools";
+import type { IbexDevToolsConfig, IbexAddAddressBookCryptoInput, IbexAddressBookEntryResponse, IbexAddressBookListResponse, IbexBalancesQuery, IbexCreateAddressBookEntryInput, IbexRefreshDetails, IbexRouteCapabilitiesQuery, IbexRouteCapabilitiesResponse, IbexRouteQuoteRequest, IbexRouteQuoteResponse, IbexRouteStatusResponse, IbexSafeEnableRecoveryOperation, IbexSafeExecuteRequest, IbexSafeExecuteResponse, IbexSafeOperationsRequest, IbexSafePrepareResponse, IbexSepaAddIbanRequest, IbexSepaAddIbanResponse, IbexSepaConfirmIbanAddRequest, IbexSepaConfirmIbanAddResponse, IbexSepaModifyIbanLabelRequest, IbexSepaModifyIbanLabelResponse, IbexSepaCancelMandateResponse, IbexSepaConfirmPaymentRequest, IbexSepaConfirmPaymentResponse, IbexSepaCreateMandateRequest, IbexSepaCreateMandateResponse, IbexSepaCreatePaymentIntentRequest, IbexSepaCreatePaymentIntentResponse, IbexSepaIbansResponse, IbexSepaMandateDetailResponse, IbexSepaMandatesResponse, IbexSepaTransactionDetailResponse, IbexSepaTransactionsQuery, IbexSepaTransactionsResponse, IbexSepaUpdateMandateStatusRequest, IbexSepaUpdateMandateStatusResponse, IbexChainsResponse, IbexConfirmEmailRequest, IbexConfirmEmailResponse, IbexConfirmSmsRequest, IbexConfirmSmsResponse, IbexSmsSignUpRequest, IbexSmsSignUpResponse, IbexSmsSignInStep1Request, IbexSmsSignInStep1Response, IbexSmsSignInConfirmRequest, IbexEmailRecoverRequest, IbexEmailRecoverResponse, IbexKycIframeRequest, IbexKycIframeResponse, IbexNormalizedBalances, IbexNormalizedProfile, IbexNormalizedTransactions, IbexRecoveryStatusResponse, IbexSdkConfig, IbexSwapQuoteQuery, IbexSwapQuoteResponse, IbexTokens, IbexTransactionsQuery, IbexUserAddressResponse, IbexUserBalancesResponse, IbexLendingQuery, IbexTokensQuery, IbexUserLendingResponse, IbexUserOperationsQuery, IbexUserOperationsResponse, IbexUserProfile, IbexUserSignersResponse, IbexUserTokensResponse, IbexVaultsQuery, IbexVaultsResponse, IbexUserTransactionsResponse, IbexUpdateAddressBookEntryInput, IbexValidateEmailRequest, IbexValidateEmailResponse, IbexValidateSmsRequest, IbexValidateSmsResponse, IbexWsConfig, IbexWsReconnectPolicy, JsonObject } from "./types";
 export declare const IBEX_TOKEN_KEY = "ibex_jwt";
 export declare const IBEX_REFRESH_TOKEN_KEY = "ibex_refresh_token";
 export declare const IBEX_EXTERNAL_USER_ID_KEY = "ibex_external_user_id";
@@ -22,6 +23,9 @@ export declare class IbexSdk {
     setSession(tokens: IbexTokens, externalUserId?: string | null): void;
     clearSessionAndScopedStorage(): void;
     authenticateWithPasskey(): Promise<IbexTokens>;
+    signUpWithSms(request: IbexSmsSignUpRequest): Promise<IbexSmsSignUpResponse>;
+    signInWithSms(request: IbexSmsSignInStep1Request): Promise<IbexSmsSignInStep1Response>;
+    confirmSmsSignIn(request: IbexSmsSignInConfirmRequest): Promise<IbexTokens>;
     refreshSession(): Promise<string>;
     refreshSessionDetailed(): Promise<IbexRefreshDetails>;
     withRefreshOnUnauthorized<T>(operation: (accessToken: string) => Promise<T>): Promise<T>;
@@ -45,6 +49,8 @@ export declare class IbexSdk {
     getMeOperations(query?: IbexUserOperationsQuery): Promise<IbexUserOperationsResponse>;
     validateEmail(request: IbexValidateEmailRequest): Promise<IbexValidateEmailResponse>;
     confirmEmail(request: IbexConfirmEmailRequest): Promise<IbexConfirmEmailResponse>;
+    validateSms(request: IbexValidateSmsRequest): Promise<IbexValidateSmsResponse>;
+    confirmSms(request: IbexConfirmSmsRequest): Promise<IbexConfirmSmsResponse>;
     getKycIframeUrl(request?: IbexKycIframeRequest): Promise<IbexKycIframeResponse>;
     recoverWithEmail(request: IbexEmailRecoverRequest): Promise<IbexEmailRecoverResponse>;
     getMeAddressBook(): Promise<IbexAddressBookListResponse>;
@@ -55,6 +61,8 @@ export declare class IbexSdk {
     deleteMeAddressBookCrypto(id: string, chainId: string | number, address: string): Promise<IbexAddressBookEntryResponse>;
     deleteMeAddressBookIban(id: string, iban: string): Promise<IbexAddressBookEntryResponse>;
     addSepaIban(payload: IbexSepaAddIbanRequest): Promise<IbexSepaAddIbanResponse>;
+    confirmSepaIbanAdd(request: IbexSepaConfirmIbanAddRequest): Promise<IbexSepaConfirmIbanAddResponse>;
+    modifySepaIbanLabel(request: IbexSepaModifyIbanLabelRequest): Promise<IbexSepaModifyIbanLabelResponse>;
     getSepaIbans(): Promise<IbexSepaIbansResponse>;
     createSepaPaymentIntent(payload: IbexSepaCreatePaymentIntentRequest): Promise<IbexSepaCreatePaymentIntentResponse>;
     confirmSepaPayment(payload: IbexSepaConfirmPaymentRequest): Promise<IbexSepaConfirmPaymentResponse>;
@@ -140,6 +148,9 @@ export declare class IbexSdk {
         walletMode?: IbexSafeOperationsRequest["walletMode"];
         eoaKeySelection?: IbexSafeOperationsRequest["eoaKeySelection"];
     }): Promise<IbexSafePrepareResponse>;
+    createDevToolsClient(config: Omit<IbexDevToolsConfig, "apiBaseUrl" | "fetchImpl"> & {
+        apiBaseUrl?: string;
+    }): IbexDevToolsClient;
     createRealtimeClient(options?: {
         blockchainId?: string;
         clientName?: string;

@@ -437,6 +437,7 @@ export type IbexSepaIban = {
   formatted?: string;
   bic?: string;
   holderName?: string;
+  label?: string;
   externStack?: string;
   accountNumber?: string;
   bankCode?: string;
@@ -451,11 +452,46 @@ export type IbexSepaAddIbanRequest = {
   holderName: string;
   safeAddress?: string;
   blockchainId?: number;
+  label?: string;
 };
+
+export type IbexSepaAddIbanApproval = {
+  approvalId?: string;
+  approvalHash?: string;
+  expiresAt?: string;
+  credentialRequestOptions?: IbexSepaCredentialRequestOptions;
+} & JsonObject;
 
 export type IbexSepaAddIbanResponse = {
   success?: boolean;
-  data?: IbexSepaIban;
+  data?: IbexSepaIban | IbexSepaAddIbanApproval;
+} & JsonObject;
+
+export type IbexSepaConfirmIbanAddRequest = {
+  approvalId: string;
+  credential: JsonObject;
+};
+
+export type IbexSepaConfirmIbanAddResponse = {
+  success?: boolean;
+  data?: {
+    approvalId?: string;
+    approvalHash?: string;
+    iban?: IbexSepaIban;
+  } & JsonObject;
+} & JsonObject;
+
+export type IbexSepaModifyIbanLabelRequest = {
+  iban: string;
+  label: string;
+};
+
+export type IbexSepaModifyIbanLabelResponse = {
+  success?: boolean;
+  data?: {
+    iban?: string;
+    label?: string;
+  } & JsonObject;
 } & JsonObject;
 
 export type IbexSepaIbansResponse = {

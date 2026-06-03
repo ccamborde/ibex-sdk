@@ -386,6 +386,7 @@ export type IbexSepaIban = {
     formatted?: string;
     bic?: string;
     holderName?: string;
+    label?: string;
     externStack?: string;
     accountNumber?: string;
     bankCode?: string;
@@ -399,10 +400,40 @@ export type IbexSepaAddIbanRequest = {
     holderName: string;
     safeAddress?: string;
     blockchainId?: number;
+    label?: string;
 };
+export type IbexSepaAddIbanApproval = {
+    approvalId?: string;
+    approvalHash?: string;
+    expiresAt?: string;
+    credentialRequestOptions?: IbexSepaCredentialRequestOptions;
+} & JsonObject;
 export type IbexSepaAddIbanResponse = {
     success?: boolean;
-    data?: IbexSepaIban;
+    data?: IbexSepaIban | IbexSepaAddIbanApproval;
+} & JsonObject;
+export type IbexSepaConfirmIbanAddRequest = {
+    approvalId: string;
+    credential: JsonObject;
+};
+export type IbexSepaConfirmIbanAddResponse = {
+    success?: boolean;
+    data?: {
+        approvalId?: string;
+        approvalHash?: string;
+        iban?: IbexSepaIban;
+    } & JsonObject;
+} & JsonObject;
+export type IbexSepaModifyIbanLabelRequest = {
+    iban: string;
+    label: string;
+};
+export type IbexSepaModifyIbanLabelResponse = {
+    success?: boolean;
+    data?: {
+        iban?: string;
+        label?: string;
+    } & JsonObject;
 } & JsonObject;
 export type IbexSepaIbansResponse = {
     success?: boolean;
@@ -644,8 +675,60 @@ export type IbexConfirmEmailRequest = {
     externalUserId: string;
 };
 export type IbexConfirmEmailResponse = JsonObject;
+export type IbexValidateSmsRequest = {
+    telephone: string;
+    externalUserId: string;
+    phonePolicy?: "frMobile" | "any";
+};
+export type IbexValidateSmsResponse = JsonObject;
+export type IbexConfirmSmsRequest = {
+    telephone: string;
+    code: string;
+    externalUserId: string;
+    phonePolicy?: "frMobile" | "any";
+    persistTelephoneToKyb?: boolean;
+};
+export type IbexConfirmSmsResponse = {
+    smsVerified?: boolean;
+    telephone?: string;
+} & JsonObject;
+export type IbexSmsSignUpRequest = {
+    telephone: string;
+    phonePolicy?: "frMobile" | "any";
+    smsDryRun?: boolean;
+    email?: string;
+    companyRegistrationNumber?: string;
+};
+export type IbexSmsSignUpResponse = {
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+    expires_in: number;
+    authMethod: "SMS";
+    hasPasskey: boolean;
+    wallet: "sms";
+    externalUserId: string;
+    sessionId?: string;
+    chatbotFullURL?: string;
+    code?: string;
+} & JsonObject;
+export type IbexSmsSignInStep1Request = {
+    telephone: string;
+    phonePolicy?: "frMobile" | "any";
+    smsDryRun?: boolean;
+};
+export type IbexSmsSignInStep1Response = {
+    wallet: "sms";
+    code?: string;
+} & JsonObject;
+export type IbexSmsSignInConfirmRequest = {
+    telephone: string;
+    code: string;
+    phonePolicy?: "frMobile" | "any";
+};
 export type IbexKycIframeRequest = {
     language?: string;
+    requireSmsVerification?: boolean;
 };
 export type IbexKycIframeResponse = {
     chatbotURL?: string;
@@ -946,3 +1029,124 @@ export type IbexWsEventMap = {
     error: IbexWsError;
     raw: IbexWsRawMessage;
 };
+export type IbexDevToolsBasicAuth = {
+    username: string;
+    password: string;
+};
+export type IbexDevToolsConfig = {
+    apiBaseUrl: string;
+    apiKey?: string;
+    basicAuth?: IbexDevToolsBasicAuth;
+    rpId?: string;
+    defaultHeaders?: Record<string, string>;
+    fetchImpl?: typeof fetch;
+};
+export type IbexDevToolsKyListQuery = {
+    page?: number;
+    limit?: number;
+};
+export type IbexDevToolsKyListItem = {
+    user_id?: string;
+    entity_type?: string;
+    ky_state_id?: number;
+    ky_state_code?: string;
+} & JsonObject;
+export type IbexDevToolsKyListResponse = {
+    items: IbexDevToolsKyListItem[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+} & JsonObject;
+export type IbexDevToolsKyStateResponse = {
+    state?: string;
+    kyStateCode?: string;
+    allowedStates?: number[];
+} & JsonObject;
+export type IbexDevToolsKySetStateInput = {
+    externalUserId: string;
+    newStateId: 2 | 3 | 4 | 5 | 22 | 23 | 55;
+    entityType?: "individual" | "company";
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+};
+export type IbexDevToolsKySetStateResponse = {
+    success?: boolean;
+    fromStateId?: number;
+    toStateId?: number;
+} & JsonObject;
+export type IbexDevToolsKyEnrollInput = {
+    externalUserId: string;
+    language?: string;
+    email?: string;
+    trustedEmail?: boolean;
+    rpId?: string;
+    data?: JsonObject;
+};
+export type IbexDevToolsKyEnrollResponse = {
+    sessionId?: string;
+    chatbotURL?: string;
+    chatbotFullURL?: string;
+} & JsonObject;
+export type IbexDevToolsKybEnrollInput = {
+    externalUserId: string;
+    email: string;
+    companyRegistrationNumber: string;
+    submit?: boolean;
+    idDocumentPage1?: string;
+    idDocumentPage2?: string;
+    rpId?: string;
+    returnUrl?: string;
+};
+export type IbexDevToolsKybEnrollResponse = {
+    sessionId?: string;
+    chatbotFullURL?: string;
+} & JsonObject;
+export type IbexDevToolsKySmsVerifiedInput = {
+    externalUserId: string;
+    smsVerifiedTelephone?: string;
+    smsVerifiedAt?: string;
+};
+export type IbexDevToolsKySmsVerifiedResponse = {
+    success: boolean;
+    kyCustomerId: number;
+    smsVerifiedTelephone: string;
+    smsVerifiedAt: string;
+};
+export type IbexDevToolsCompanyCheckInput = {
+    siren: string;
+};
+export type IbexDevToolsCompanyCheckResponse = {
+    success: boolean;
+    data: {
+        result: "OK" | "KO";
+    } & JsonObject;
+};
+export type IbexDevToolsSepaTopupInput = {
+    targetIban: string;
+    targetName?: string;
+    amount?: string;
+    amountEur?: number;
+    channel?: "SEPA" | "SEPAINSTANT";
+    remittanceInfo?: string;
+};
+export type IbexDevToolsSepaTopupResponse = {
+    success: boolean;
+    data: {
+        source?: JsonObject;
+        identity?: JsonObject;
+        payment?: JsonObject;
+    } & JsonObject;
+};
+export type IbexDevToolsCryptoTopupInput = {
+    externalUserId: string;
+    wallet?: string;
+};
+export type IbexDevToolsCryptoTopupResponse = {
+    success?: boolean;
+    wallet?: string;
+    token?: string;
+    amount?: string;
+    txHash?: string;
+} & JsonObject;
