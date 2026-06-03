@@ -21,7 +21,9 @@ import type {
   JsonObject,
 } from "./types";
 
-export function defaultResolveRpId(hostname: string = window.location.hostname): string {
+export function defaultResolveRpId(
+  hostname: string = typeof window !== "undefined" ? window.location.hostname : "localhost",
+): string {
   const host = hostname.toLowerCase().trim();
   if (!host) return "localhost";
   if (host.endsWith(".ibex.fi") || host === "ibex.fi") return "ibex.fi";
@@ -156,7 +158,7 @@ export function normalizeSignUpOptions(payload: JsonObject): PublicKeyCredential
     challenge: fromBase64Url(String(options.challenge || "")),
     rp: {
       id: typeof rpRaw.id === "string" ? rpRaw.id : undefined,
-      name: String(rpRaw.name || window.location.hostname),
+      name: String(rpRaw.name || (typeof window !== "undefined" ? window.location.hostname : "ibex-sdk")),
     },
     user: {
       id: fromBase64Url(String(userRaw.id || "")),

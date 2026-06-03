@@ -16,6 +16,11 @@ export type IbexSdkStorage = {
   keys(): string[];
 };
 
+export type IbexWebAuthnProvider = {
+  create(options: PublicKeyCredentialCreationOptions): Promise<PublicKeyCredential>;
+  get(options: PublicKeyCredentialRequestOptions): Promise<PublicKeyCredential>;
+};
+
 export type IbexSdkConfig = {
   apiBaseUrl: string;
   blockchainId?: string;
@@ -24,6 +29,7 @@ export type IbexSdkConfig = {
   fetchImpl?: typeof fetch;
   storage?: IbexSdkStorage;
   resolveRpId?: (hostname?: string) => string;
+  webauthnProvider?: IbexWebAuthnProvider;
 };
 
 export type IbexUserProfile = {
