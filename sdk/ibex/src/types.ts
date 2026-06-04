@@ -518,6 +518,7 @@ export type IbexSepaCreatePaymentIntentRequest = {
   amount: string;
   currency: string;
   remittanceInfo?: string;
+  userId?: string;
   debtor: IbexSepaPaymentParty;
   creditor: IbexSepaPaymentParty;
 };

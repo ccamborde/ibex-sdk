@@ -120,6 +120,23 @@ export function normalizeSignInOptions(payload: JsonObject): PublicKeyCredential
       transports: Array.isArray(c.transports) ? (c.transports as AuthenticatorTransport[]) : undefined,
     }));
 
+  let extensions: AuthenticationExtensionsClientInputs | undefined;
+  const ext = options.extensions as JsonObject | undefined;
+  if (ext && typeof ext === "object") {
+    const prf = ext.prf as JsonObject | undefined;
+    const evalObj = prf?.eval as JsonObject | undefined;
+    const first = typeof evalObj?.first === "string" ? fromBase64Url(evalObj.first) : undefined;
+    if (first) {
+      extensions = {
+        prf: {
+          eval: {
+            first,
+          },
+        },
+      } as AuthenticationExtensionsClientInputs;
+    }
+  }
+
   return {
     challenge: fromBase64Url(challenge),
     rpId: typeof options.rpId === "string" ? options.rpId : undefined,
@@ -129,6 +146,7 @@ export function normalizeSignInOptions(payload: JsonObject): PublicKeyCredential
         ? (options.userVerification as UserVerificationRequirement)
         : undefined,
     allowCredentials: allowCredentials.length > 0 ? allowCredentials : undefined,
+    extensions,
   };
 }
 

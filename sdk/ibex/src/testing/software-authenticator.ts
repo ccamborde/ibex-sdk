@@ -65,6 +65,14 @@ type StoredCredential = {
 
 type CredentialStore = Record<string, StoredCredential | unknown>;
 
+type PrfExtensionResult = {
+  prf?: {
+    results?: {
+      first?: string;
+    };
+  };
+};
+
 function toBase64Url(buf: Buffer | Uint8Array): string {
   return Buffer.from(buf).toString("base64url");
 }
@@ -230,10 +238,28 @@ export class SoftwareAuthenticator implements IbexWebAuthnProvider {
     };
     this.saveStore();
 
+    // Match legacy Python harness behavior:
+    // if PRF extension is requested at registration, advertise it and
+    // evaluate `prf.results.first` using HMAC-SHA256(prf_seed, salt).
+    const extResults: AuthenticationExtensionsClientOutputs = {};
+    const ext = options.extensions as { prf?: { eval?: { first?: ArrayBuffer } } } | undefined;
+    if (ext?.prf) {
+      (extResults as PrfExtensionResult).prf = { results: {} };
+      const first = ext.prf.eval?.first;
+      if (first) {
+        const salt = Buffer.from(first);
+        const out = crypto.createHmac("sha256", prfSeed).update(salt).digest();
+        (extResults as PrfExtensionResult).prf = {
+          results: { first: toBase64Url(out) },
+        };
+      }
+    }
+
     return buildPublicKeyCredential({
       id: credentialIdB64,
       rawId: credentialIdBytes,
       type: "public-key",
+      clientExtensionResults: extResults,
       response: {
         kind: "attestation",
         clientDataJSON,
@@ -270,9 +296,10 @@ export class SoftwareAuthenticator implements IbexWebAuthnProvider {
 
     const rpIdHash = crypto.createHash("sha256").update(rpId).digest();
     const flags = Buffer.from([0x05]); // UP + UV
-    this.signCounter++;
+    // Keep signCount at zero to mirror the reference Python signer used by
+    // the legacy non-SDK scripts and avoid verifier mismatch in IBEX Safe.
     const counter = Buffer.alloc(4);
-    counter.writeUInt32BE(this.signCounter);
+    counter.writeUInt32BE(0);
     const authenticatorData = Buffer.concat([rpIdHash, flags, counter]);
 
     const clientDataHash = crypto.createHash("sha256").update(clientDataJSON).digest();
@@ -284,14 +311,19 @@ export class SoftwareAuthenticator implements IbexWebAuthnProvider {
     });
     const signature = normalizeLowS(rawSignature);
 
+    // Keep compatibility with the legacy Python signer:
+    // userHandle is base64url(utf8(user_id_string)), not raw decoded bytes.
     const userHandle = stored.user_id
-      ? Buffer.from(stored.user_id, "base64url")
+      ? Buffer.from(stored.user_id, "utf-8")
       : null;
+
+    const extensionResults = this.computePrfExtensionResults(options, stored);
 
     return buildPublicKeyCredential({
       id: credentialIdB64,
       rawId: credentialIdBytes,
       type: "public-key",
+      clientExtensionResults: extensionResults,
       response: {
         kind: "assertion",
         clientDataJSON,
@@ -323,6 +355,29 @@ export class SoftwareAuthenticator implements IbexWebAuthnProvider {
     candidates.sort((a, b) => (b[1].created_at ?? 0) - (a[1].created_at ?? 0));
     return candidates[0];
   }
+
+  private computePrfExtensionResults(
+    options: PublicKeyCredentialRequestOptions,
+    stored: StoredCredential,
+  ): AuthenticationExtensionsClientOutputs {
+    const ext = options.extensions as { prf?: { eval?: { first?: ArrayBuffer } } } | undefined;
+    const first = ext?.prf?.eval?.first;
+    if (!first || !stored.prf_seed) return {};
+    try {
+      const seed = Buffer.from(stored.prf_seed, "base64");
+      const salt = Buffer.from(first);
+      const out = crypto.createHmac("sha256", seed).update(salt).digest();
+      return {
+        prf: {
+          results: {
+            first: toBase64Url(out),
+          },
+        },
+      } as AuthenticationExtensionsClientOutputs;
+    } catch {
+      return {};
+    }
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -344,6 +399,7 @@ type CredentialBuildInput = {
   id: string;
   rawId: Buffer;
   type: string;
+  clientExtensionResults?: AuthenticationExtensionsClientOutputs;
   response:
     | {
         kind: "attestation";
@@ -392,7 +448,7 @@ function buildPublicKeyCredential(input: CredentialBuildInput): PublicKeyCredent
     type: input.type,
     response,
     authenticatorAttachment: "platform",
-    getClientExtensionResults: () => ({}),
+    getClientExtensionResults: () => (input.clientExtensionResults ?? {}),
   } as unknown as PublicKeyCredential;
 }
 

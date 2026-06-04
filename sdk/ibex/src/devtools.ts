@@ -45,7 +45,7 @@ export class IbexDevToolsClient {
       this.authHeaders = { "x-api-key": config.apiKey, ...rpIdHeaders };
     } else if (config.basicAuth) {
       const encoded = btoa(`${config.basicAuth.username}:${config.basicAuth.password}`);
-      this.authHeaders = { Authorization: `Basic ${encoded}` };
+      this.authHeaders = { Authorization: `Basic ${encoded}`, ...rpIdHeaders };
     } else {
       this.authHeaders = rpIdHeaders;
     }
