@@ -1349,10 +1349,72 @@ export type IbexDevToolsCompanyCheckInput = {
   siren: string;
 };
 
+export type IbexDevToolsScreeningResult = {
+  count?: number;
+  results?: JsonObject[];
+} & JsonObject;
+
+export type IbexDevToolsPpeResult = {
+  is_elu?: boolean;
+  total_mandats?: number;
+  results?: JsonObject[];
+} & JsonObject;
+
+export type IbexDevToolsCompanyRepresentative = {
+  source?: string;
+  type?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  role?: string;
+  secondRole?: string | null;
+  birthDate?: string | null;
+  opensanctionsResult?: IbexDevToolsScreeningResult;
+  ppeResult?: IbexDevToolsPpeResult;
+} & JsonObject;
+
+export type IbexDevToolsBeneficialOwnerAddress = {
+  street?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  country?: string | null;
+} & JsonObject;
+
+export type IbexDevToolsBeneficialOwner = {
+  type?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  birthDate?: string | null;
+  nationalityCode?: string | null;
+  birthCountry?: string | null;
+  birthPlace?: string | null;
+  address?: IbexDevToolsBeneficialOwnerAddress;
+  detentionCapitalPct?: number | null;
+  detentionDroitDeVotePct?: number | null;
+  opensanctionsResult?: IbexDevToolsScreeningResult;
+  ppeResult?: IbexDevToolsPpeResult;
+} & JsonObject;
+
 export type IbexDevToolsCompanyCheckResponse = {
-  success: boolean;
-  data: { result: "OK" | "KO" } & JsonObject;
-};
+  existence?: {
+    exists?: boolean;
+    inpi?: boolean;
+    rechercheEntreprises?: boolean;
+  } & JsonObject;
+  companyName?: string | null;
+  companyRegistrationNumber?: string | null;
+  siret?: string | null;
+  companyRegistrationDate?: string | null;
+  companyType?: string | null;
+  naf?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  companyInseeCityCode?: string | null;
+  representatives?: IbexDevToolsCompanyRepresentative[];
+  beneficiairesEffectifs?: IbexDevToolsBeneficialOwner[];
+} & JsonObject;
 
 export type IbexDevToolsSepaTopupInput = {
   targetIban: string;

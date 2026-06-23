@@ -373,7 +373,7 @@ export class SoftwareAuthenticator implements IbexWebAuthnProvider {
             first: toBase64Url(out),
           },
         },
-      } as AuthenticationExtensionsClientOutputs;
+      } as unknown as AuthenticationExtensionsClientOutputs;
     } catch {
       return {};
     }
@@ -453,5 +453,5 @@ function buildPublicKeyCredential(input: CredentialBuildInput): PublicKeyCredent
 }
 
 function bufToAB(buf: Buffer): ArrayBuffer {
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  return Uint8Array.from(buf).buffer;
 }

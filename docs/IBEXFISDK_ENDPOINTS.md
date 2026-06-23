@@ -4,6 +4,7 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 
 ## Changelog
 
+- **2026-06-23** `modify` `IbexDevToolsCompanyCheckResponse` type: aligned with structured `POST /api/admin/devtools/company/check` response (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) instead of legacy `OK/KO`.
 - **2026-06-03** `modify` `addSepaIban(payload)` -> `POST /v1.2/sepa/iban/add`: behavior now depends on domain flag `isSepaIbanAddWebauthnEnabled`. Added `label` optional parameter to request body.
 - **2026-06-03** `create` `confirmSepaIbanAdd(request)` -> `PUT /v1.2/sepa/iban/add`: new method to confirm IBAN creation via WebAuthn assertion (used when `isSepaIbanAddWebauthnEnabled=TRUE`).
 - **2026-06-03** `create` `modifySepaIbanLabel(request)` -> `PATCH /v1.2/sepa/iban/modify`: new method to update the label of an existing IBAN.
@@ -2839,7 +2840,7 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 | `IbexDevToolsKySmsVerifiedInput` | Input for `kySmsVerified` (externalUserId, smsVerifiedTelephone?, smsVerifiedAt?) |
 | `IbexDevToolsKySmsVerifiedResponse` | SMS verified result (success, kyCustomerId, smsVerifiedTelephone, smsVerifiedAt) |
 | `IbexDevToolsCompanyCheckInput` | Input for `companyCheck` (siren) |
-| `IbexDevToolsCompanyCheckResponse` | Check result (success, data: { result: "OK" or "KO" }) |
+| `IbexDevToolsCompanyCheckResponse` | Structured company check payload (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) |
 | `IbexDevToolsSepaTopupInput` | Input for `sepaTopup` (targetIban, targetName?, amount?, amountEur?, channel?, remittanceInfo?) |
 | `IbexDevToolsSepaTopupResponse` | Topup result (success, data: { source, identity, payment }) |
 | `IbexDevToolsCryptoTopupInput` | Input for `cryptoTopup` (externalUserId, wallet?) |

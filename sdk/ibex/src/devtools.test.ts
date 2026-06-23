@@ -167,7 +167,15 @@ describe("IbexDevToolsClient KY endpoints", () => {
 
 describe("IbexDevToolsClient company endpoint", () => {
   it("companyCheck sends POST with siren", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(200, { success: true, data: { result: "OK" } }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(200, {
+        existence: { exists: true, inpi: true, rechercheEntreprises: true },
+        companyName: "GOOGLE FRANCE",
+        companyRegistrationNumber: "443061841",
+        representatives: [{ fullName: "PAUL Manicle", opensanctionsResult: { count: 0, results: [] } }],
+        beneficiairesEffectifs: [{ fullName: "Larry PAGE", ppeResult: { is_elu: false, total_mandats: 0, results: [] } }],
+      }),
+    );
     const client = createIbexDevToolsClient({ apiBaseUrl: BASE, apiKey: "k", fetchImpl: fetchMock });
 
     const result = await client.companyCheck({ siren: "123456789" });
@@ -175,8 +183,9 @@ describe("IbexDevToolsClient company endpoint", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe(`${BASE}/api/admin/devtools/company/check`);
     expect(init?.method).toBe("POST");
-    expect(result.success).toBe(true);
-    expect(result.data.result).toBe("OK");
+    expect(result.existence?.exists).toBe(true);
+    expect(result.companyRegistrationNumber).toBe("443061841");
+    expect(result.representatives?.[0]?.fullName).toBe("PAUL Manicle");
   });
 });
 
