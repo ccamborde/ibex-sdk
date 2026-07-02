@@ -12,6 +12,10 @@ export type IbexSdkStorage = {
     remove(key: string): void;
     keys(): string[];
 };
+export type IbexWebAuthnProvider = {
+    create(options: PublicKeyCredentialCreationOptions): Promise<PublicKeyCredential>;
+    get(options: PublicKeyCredentialRequestOptions): Promise<PublicKeyCredential>;
+};
 export type IbexSdkConfig = {
     apiBaseUrl: string;
     blockchainId?: string;
@@ -20,6 +24,7 @@ export type IbexSdkConfig = {
     fetchImpl?: typeof fetch;
     storage?: IbexSdkStorage;
     resolveRpId?: (hostname?: string) => string;
+    webauthnProvider?: IbexWebAuthnProvider;
 };
 export type IbexUserProfile = {
     externalUserId?: string;
@@ -450,6 +455,7 @@ export type IbexSepaCreatePaymentIntentRequest = {
     amount: string;
     currency: string;
     remittanceInfo?: string;
+    userId?: string;
     debtor: IbexSepaPaymentParty;
     creditor: IbexSepaPaymentParty;
 };
@@ -692,10 +698,24 @@ export type IbexConfirmSmsResponse = {
     smsVerified?: boolean;
     telephone?: string;
 } & JsonObject;
-export type IbexSmsSignUpRequest = {
+/** Step 1 — trigger OTP via GET /v1.2/auth/sign-up?wallet=sms */
+export type IbexSmsSignUpStep1Request = {
     telephone: string;
     phonePolicy?: "frMobile" | "any";
     smsDryRun?: boolean;
+};
+/** Step 1 response — contains externalUserId needed for step 2 */
+export type IbexSmsSignUpStep1Response = {
+    wallet: "sms";
+    externalUserId: string;
+    code?: string;
+} & JsonObject;
+/** Step 2 — confirm OTP via POST /v1.2/auth/sign-up */
+export type IbexSmsSignUpConfirmRequest = {
+    externalUserId: string;
+    telephone: string;
+    code: string;
+    phonePolicy?: "frMobile" | "any";
     email?: string;
     companyRegistrationNumber?: string;
 };
@@ -712,6 +732,14 @@ export type IbexSmsSignUpResponse = {
     chatbotFullURL?: string;
     code?: string;
 } & JsonObject;
+/** @deprecated Use IbexSmsSignUpStep1Request + IbexSmsSignUpConfirmRequest instead */
+export type IbexSmsSignUpRequest = {
+    telephone: string;
+    phonePolicy?: "frMobile" | "any";
+    smsDryRun?: boolean;
+    email?: string;
+    companyRegistrationNumber?: string;
+};
 export type IbexSmsSignInStep1Request = {
     telephone: string;
     phonePolicy?: "frMobile" | "any";
@@ -1117,12 +1145,67 @@ export type IbexDevToolsKySmsVerifiedResponse = {
 export type IbexDevToolsCompanyCheckInput = {
     siren: string;
 };
+export type IbexDevToolsScreeningResult = {
+    count?: number;
+    results?: JsonObject[];
+} & JsonObject;
+export type IbexDevToolsPpeResult = {
+    is_elu?: boolean;
+    total_mandats?: number;
+    results?: JsonObject[];
+} & JsonObject;
+export type IbexDevToolsCompanyRepresentative = {
+    source?: string;
+    type?: string;
+    firstName?: string;
+    lastName?: string;
+    fullName?: string;
+    role?: string;
+    secondRole?: string | null;
+    birthDate?: string | null;
+    opensanctionsResult?: IbexDevToolsScreeningResult;
+    ppeResult?: IbexDevToolsPpeResult;
+} & JsonObject;
+export type IbexDevToolsBeneficialOwnerAddress = {
+    street?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    country?: string | null;
+} & JsonObject;
+export type IbexDevToolsBeneficialOwner = {
+    type?: string;
+    firstName?: string;
+    lastName?: string;
+    fullName?: string;
+    birthDate?: string | null;
+    nationalityCode?: string | null;
+    birthCountry?: string | null;
+    birthPlace?: string | null;
+    address?: IbexDevToolsBeneficialOwnerAddress;
+    detentionCapitalPct?: number | null;
+    detentionDroitDeVotePct?: number | null;
+    opensanctionsResult?: IbexDevToolsScreeningResult;
+    ppeResult?: IbexDevToolsPpeResult;
+} & JsonObject;
 export type IbexDevToolsCompanyCheckResponse = {
-    success: boolean;
-    data: {
-        result: "OK" | "KO";
+    existence?: {
+        exists?: boolean;
+        inpi?: boolean;
+        rechercheEntreprises?: boolean;
     } & JsonObject;
-};
+    companyName?: string | null;
+    companyRegistrationNumber?: string | null;
+    siret?: string | null;
+    companyRegistrationDate?: string | null;
+    companyType?: string | null;
+    naf?: string | null;
+    address?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    companyInseeCityCode?: string | null;
+    representatives?: IbexDevToolsCompanyRepresentative[];
+    beneficiairesEffectifs?: IbexDevToolsBeneficialOwner[];
+} & JsonObject;
 export type IbexDevToolsSepaTopupInput = {
     targetIban: string;
     targetName?: string;

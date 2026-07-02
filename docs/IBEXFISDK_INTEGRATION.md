@@ -20,8 +20,10 @@ This page gives a developer-oriented flow for:
 ```mermaid
 flowchart TD
     A[Start] --> B[Create SDK instance]
-    B --> C[SMS sign-up<br/>sdk.signUpWithSms]
-    C --> D{KYB required?}
+    B --> C1[Step 1: Trigger OTP<br/>sdk.initSmsSignUp]
+    C1 --> C2[User enters OTP code]
+    C2 --> C3[Step 2: Confirm OTP<br/>sdk.confirmSmsSignUp]
+    C3 --> D{KYB required?}
     D -- Yes --> E[Start KYB session<br/>sdk.getKycIframeUrl]
     D -- No --> H[Read profile status<br/>sdk.getMe]
     E --> F[User completes KYB in iframe/full URL]
@@ -54,7 +56,14 @@ sequenceDiagram
     participant WS as IBEx WS
     participant WB as Your Webhook Backend
 
-    App->>SDK: signUpWithSms({ telephone, email, companyRegistrationNumber })
+    App->>SDK: initSmsSignUp({ telephone })
+    SDK->>API: GET /v1.2/auth/sign-up?wallet=sms&telephone=...
+    API-->>SDK: externalUserId (+ code in dry-run)
+    SDK-->>App: IbexSmsSignUpStep1Response
+
+    Note over App: User receives SMS and enters OTP code
+
+    App->>SDK: confirmSmsSignUp({ externalUserId, telephone, code, email, companyRegistrationNumber })
     SDK->>API: POST /v1.2/auth/sign-up (wallet=sms)
     API-->>SDK: access_token + refresh_token + externalUserId
     SDK-->>App: Session ready
@@ -98,7 +107,15 @@ sequenceDiagram
 |    Dev App     |        |    IBEx SDK    |        |    IBEx API    |
 +----------------+        +----------------+        +----------------+
         |                          |                          |
-        | signUpWithSms()          |                          |
+        | initSmsSignUp()          |                          |
+        |------------------------->| GET /auth/sign-up?sms    |
+        |                          |------------------------->|
+        |                          |<-------------------------|
+        |<-------------------------| externalUserId (+code)   |
+        |                          |                          |
+        | (user enters OTP code)   |                          |
+        |                          |                          |
+        | confirmSmsSignUp()       |                          |
         |------------------------->| POST /auth/sign-up sms   |
         |                          |------------------------->|
         |                          |<-------------------------|
@@ -147,8 +164,11 @@ sequenceDiagram
 
 ## 2) SDK Methods and API Mapping
 
-- `sdk.signUpWithSms(request)` -> `POST /v1.2/auth/sign-up` with `wallet=sms`
-  - KYC individual: `telephone` (required)
+- `sdk.initSmsSignUp(request)` -> `GET /v1.2/auth/sign-up?wallet=sms&telephone=...`
+  - triggers OTP and returns `externalUserId` (step 1)
+- `sdk.confirmSmsSignUp(request)` -> `POST /v1.2/auth/sign-up` with `wallet=sms`
+  - confirms OTP with `externalUserId` + `code` from step 1 (step 2)
+  - KYC individual: `telephone` + `code` + `externalUserId` (required)
   - KYB company: add `email` and `companyRegistrationNumber` (SIREN)
 - `sdk.getKycIframeUrl(request?)` -> `POST /v1.2/auth/iframe`
   - returns `chatbotURL`, `chatbotFullURL`, `sessionId`, `alreadySent`
@@ -172,9 +192,18 @@ const sdk = createIbexSdk({
 });
 
 async function signupSmsThenKyb() {
-  // KYB sign-up over SMS
-  await sdk.signUpWithSms({
+  // Step 1: trigger OTP
+  const step1 = await sdk.initSmsSignUp({
     telephone: "+33612345678",
+    phonePolicy: "frMobile",
+  });
+
+  // Step 2: confirm OTP (use step1.code in dry-run, or prompt user for code)
+  const userCode = step1.code ?? await promptUserForOtp();
+  await sdk.confirmSmsSignUp({
+    externalUserId: step1.externalUserId,
+    telephone: "+33612345678",
+    code: userCode,
     email: "ops@company.fr",
     companyRegistrationNumber: "123456789",
   });

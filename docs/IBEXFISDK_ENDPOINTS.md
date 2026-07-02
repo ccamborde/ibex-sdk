@@ -4,6 +4,7 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 
 ## Changelog
 
+- **2026-07-02** `modify` SMS sign-up is now a 2-step flow: added `initSmsSignUp()` (GET) and `confirmSmsSignUp()` (POST). `signUpWithSms()` deprecated as dry-run-only convenience wrapper. Added types `IbexSmsSignUpStep1Request`, `IbexSmsSignUpStep1Response`, `IbexSmsSignUpConfirmRequest`.
 - **2026-06-23** `modify` `IbexDevToolsCompanyCheckResponse` type: aligned with structured `POST /api/admin/devtools/company/check` response (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) instead of legacy `OK/KO`.
 - **2026-06-03** `modify` `addSepaIban(payload)` -> `POST /v1.2/sepa/iban/add`: behavior now depends on domain flag `isSepaIbanAddWebauthnEnabled`. Added `label` optional parameter to request body.
 - **2026-06-03** `create` `confirmSepaIbanAdd(request)` -> `PUT /v1.2/sepa/iban/add`: new method to confirm IBAN creation via WebAuthn assertion (used when `isSepaIbanAddWebauthnEnabled=TRUE`).
@@ -127,7 +128,9 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `authenticateWithPasskey()` | `POST` | `/v1.2/auth/sign-in` |
 | `authenticateWithPasskey()` (fallback) | `GET` | `/v1.2/auth/sign-up` |
 | `authenticateWithPasskey()` (fallback) | `POST` | `/v1.2/auth/sign-up` |
-| `signUpWithSms(request)` | `POST` | `/v1.2/auth/sign-up` (wallet=sms) |
+| `initSmsSignUp(request)` | `GET` | `/v1.2/auth/sign-up?wallet=sms` |
+| `confirmSmsSignUp(request)` | `POST` | `/v1.2/auth/sign-up` (wallet=sms) |
+| `signUpWithSms(request)` *(deprecated)* | `GET`+`POST` | `/v1.2/auth/sign-up` (wallet=sms, dry-run only) |
 | `signInWithSms(request)` | `GET` | `/v1.2/auth/sign-in?wallet=sms` |
 | `confirmSmsSignIn(request)` | `POST` | `/v1.2/auth/sign-in` (wallet=sms) |
 | `refreshSession()` / `refreshSessionDetailed()` | `POST` | `/v1.2/auth/refresh` |
@@ -340,16 +343,50 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 
 ### 1b) SMS Authentication (`wallet=sms`)
 
-### `signUpWithSms(request)`
+SMS sign-up is a **2-step flow** (similar to SMS sign-in):
+1. `initSmsSignUp()` — triggers OTP via GET, returns `externalUserId`
+2. `confirmSmsSignUp()` — confirms OTP via POST, returns JWT tokens
 
-- Endpoint: `POST /v1.2/auth/sign-up`
-- Purpose: create a new user account with SMS-based authentication (KYC individual or KYB company). Single POST — no prior GET required.
-- Returns: `IbexSmsSignUpResponse`
-- Auth: PUBLIC (no JWT), but sends rpId headers
-- Request body:
+### `initSmsSignUp(request)`
+
+- Endpoint: `GET /v1.2/auth/sign-up?wallet=sms&telephone=...`
+- Purpose: trigger an OTP SMS to the provided phone number and create the user in IbexSafe (step 1 of SMS sign-up)
+- Returns: `IbexSmsSignUpStep1Response`
+- Auth: PUBLIC (no JWT), sends rpId headers
+- Request:
   - `telephone: string` (required) — E.164 format (e.g. `+33612345678`)
   - `phonePolicy?: "frMobile" | "any"` — phone validation policy
-  - `smsDryRun?: boolean` — if `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production.
+  - `smsDryRun?: boolean` — if `false`, send a real SMS. Default: `true` outside production/preprod (skip SMS, return `code` in response).
+- Does NOT persist session (OTP not yet confirmed).
+- Response fields:
+  | Field | Description |
+  |---|---|
+  | `wallet` | Always `"sms"` |
+  | `externalUserId` | User identifier (pass to step 2) |
+  | `code` | OTP code (dry-run mode only — never in production) |
+- Example:
+  ```typescript
+  const step1 = await sdk.initSmsSignUp({
+    telephone: "+33612345678",
+    phonePolicy: "frMobile",
+  });
+  console.log("User created:", step1.externalUserId);
+  // In dry-run: step1.code contains the OTP for testing
+  ```
+- Rate limiting: 3 SMS/day per phone number, 10/day per IP, 100/day per tenant (shared with sign-in).
+- Error responses: `400` invalid phone format · `429` rate limit exceeded
+
+### `confirmSmsSignUp(request)`
+
+- Endpoint: `POST /v1.2/auth/sign-up`
+- Purpose: confirm OTP code and perform KYC/KYB enrollment (step 2 of SMS sign-up)
+- Returns: `IbexSmsSignUpResponse`
+- Auth: PUBLIC (no JWT), sends rpId headers
+- Request body:
+  - `externalUserId: string` (required) — from `initSmsSignUp()` response
+  - `telephone: string` (required) — same phone as step 1
+  - `code: string` (required) — 4-8 digit OTP received by SMS
+  - `phonePolicy?: "frMobile" | "any"` — phone validation policy
   - `email?: string` — required for KYB (company) sign-up
   - `companyRegistrationNumber?: string` — SIREN (9 digits) for KYB sign-up
 - The SDK automatically adds `wallet: "sms"` to the request body.
@@ -363,26 +400,42 @@ For authenticated user endpoints, the SDK sends both headers automatically:
   | `externalUserId` | User identifier |
   | `sessionId` | KYC session ID (if applicable) |
   | `chatbotFullURL` | KYC chatbot URL (if applicable) |
-  | `code` | OTP code (dev/dryRun mode only — never in production) |
 - Example:
   ```typescript
-  // KYC (individual) sign-up
-  const result = await sdk.signUpWithSms({
+  // KYC (individual) sign-up — full 2-step flow
+  const step1 = await sdk.initSmsSignUp({ telephone: "+33612345678", phonePolicy: "frMobile" });
+  // ... user receives SMS and enters OTP code ...
+  const result = await sdk.confirmSmsSignUp({
+    externalUserId: step1.externalUserId,
     telephone: "+33612345678",
+    code: userEnteredCode,
     phonePolicy: "frMobile",
   });
   console.log("Signed up:", result.externalUserId);
   // Session is automatically persisted — SDK is ready for authenticated calls
 
   // KYB (company) sign-up
-  const kybResult = await sdk.signUpWithSms({
+  const kybResult = await sdk.confirmSmsSignUp({
+    externalUserId: step1.externalUserId,
     telephone: "+33612345678",
+    code: userEnteredCode,
     email: "contact@company.fr",
     companyRegistrationNumber: "123456789",
   });
   ```
-- Rate limiting: 3 SMS/day per phone number, 10/day per IP, 100/day per tenant (shared with sign-in).
-- Error responses: `400` invalid phone format or missing fields · `429` rate limit exceeded
+- Error responses: `400` invalid/expired code, missing fields, externalUserId mismatch · `429` rate limit exceeded
+
+### `signUpWithSms(request)` *(deprecated)*
+
+- Convenience wrapper that chains `initSmsSignUp()` + `confirmSmsSignUp()` in a single call.
+- **Only works in dry-run mode** (where `code` is returned in step 1 response).
+- Throws an error if step 1 does not return a `code` (i.e. production mode where user must manually enter OTP).
+- Use `initSmsSignUp()` + `confirmSmsSignUp()` for production apps with OTP input UI.
+- Example:
+  ```typescript
+  // Dry-run / test mode only
+  const result = await sdk.signUpWithSms({ telephone: "+33612345678", phonePolicy: "frMobile" });
+  ```
 
 ### `signInWithSms(request)`
 
@@ -460,8 +513,11 @@ const profile = await sdk.getMe();
 
 | Type | Purpose |
 |---|---|
-| `IbexSmsSignUpRequest` | Input for `signUpWithSms` |
-| `IbexSmsSignUpResponse` | Full response from SMS sign-up (tokens + metadata) |
+| `IbexSmsSignUpStep1Request` | Input for `initSmsSignUp` (trigger OTP, step 1) |
+| `IbexSmsSignUpStep1Response` | Response from step 1 (`externalUserId` + optional dev code) |
+| `IbexSmsSignUpConfirmRequest` | Input for `confirmSmsSignUp` (confirm OTP, step 2) |
+| `IbexSmsSignUpResponse` | Full response from SMS sign-up step 2 (tokens + metadata) |
+| `IbexSmsSignUpRequest` | *(deprecated)* Input for legacy `signUpWithSms` wrapper |
 | `IbexSmsSignInStep1Request` | Input for `signInWithSms` (trigger OTP) |
 | `IbexSmsSignInStep1Response` | Response from step 1 (wallet confirmation + dev code) |
 | `IbexSmsSignInConfirmRequest` | Input for `confirmSmsSignIn` (confirm OTP) |

@@ -49,6 +49,9 @@ import type {
   IbexConfirmSmsRequest,
   IbexConfirmSmsResponse,
   IbexSmsSignUpRequest,
+  IbexSmsSignUpStep1Request,
+  IbexSmsSignUpStep1Response,
+  IbexSmsSignUpConfirmRequest,
   IbexSmsSignUpResponse,
   IbexSmsSignInStep1Request,
   IbexSmsSignInStep1Response,
@@ -259,7 +262,20 @@ export class IbexSdk {
     return this.signUpWithPasskey();
   }
 
-  async signUpWithSms(request: IbexSmsSignUpRequest): Promise<IbexSmsSignUpResponse> {
+  async initSmsSignUp(request: IbexSmsSignUpStep1Request): Promise<IbexSmsSignUpStep1Response> {
+    const rpId = this.resolveRpId();
+    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
+    if (request.phonePolicy) params.set("phonePolicy", request.phonePolicy);
+    if (typeof request.smsDryRun === "boolean") params.set("smsDryRun", String(request.smsDryRun));
+    const payload = await this.jsonFetch(`/v1.2/auth/sign-up?${params.toString()}`, {
+      method: "GET",
+      headers: rpHeaders,
+    });
+    return payload as IbexSmsSignUpStep1Response;
+  }
+
+  async confirmSmsSignUp(request: IbexSmsSignUpConfirmRequest): Promise<IbexSmsSignUpResponse> {
     const rpId = this.resolveRpId();
     const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
     const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
@@ -274,6 +290,27 @@ export class IbexSdk {
       this.setSession(tokens, externalUserId);
     }
     return response;
+  }
+
+  /** @deprecated Use initSmsSignUp() + confirmSmsSignUp() for the 2-step flow */
+  async signUpWithSms(request: IbexSmsSignUpRequest): Promise<IbexSmsSignUpResponse> {
+    const step1 = await this.initSmsSignUp({
+      telephone: request.telephone,
+      phonePolicy: request.phonePolicy,
+      smsDryRun: request.smsDryRun,
+    });
+    const code = step1.code;
+    if (!code) {
+      throw new Error("signUpWithSms requires dry-run mode (code returned in step 1) or use initSmsSignUp + confirmSmsSignUp separately");
+    }
+    return this.confirmSmsSignUp({
+      externalUserId: step1.externalUserId,
+      telephone: request.telephone,
+      code,
+      phonePolicy: request.phonePolicy,
+      email: request.email,
+      companyRegistrationNumber: request.companyRegistrationNumber,
+    });
   }
 
   async signInWithSms(request: IbexSmsSignInStep1Request): Promise<IbexSmsSignInStep1Response> {

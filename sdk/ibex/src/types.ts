@@ -815,10 +815,26 @@ export type IbexConfirmSmsResponse = {
 
 // --- SMS Authentication (wallet=sms) ---
 
-export type IbexSmsSignUpRequest = {
+/** Step 1 — trigger OTP via GET /v1.2/auth/sign-up?wallet=sms */
+export type IbexSmsSignUpStep1Request = {
   telephone: string;
   phonePolicy?: "frMobile" | "any";
   smsDryRun?: boolean;
+};
+
+/** Step 1 response — contains externalUserId needed for step 2 */
+export type IbexSmsSignUpStep1Response = {
+  wallet: "sms";
+  externalUserId: string;
+  code?: string;
+} & JsonObject;
+
+/** Step 2 — confirm OTP via POST /v1.2/auth/sign-up */
+export type IbexSmsSignUpConfirmRequest = {
+  externalUserId: string;
+  telephone: string;
+  code: string;
+  phonePolicy?: "frMobile" | "any";
   email?: string;
   companyRegistrationNumber?: string;
 };
@@ -836,6 +852,15 @@ export type IbexSmsSignUpResponse = {
   chatbotFullURL?: string;
   code?: string;
 } & JsonObject;
+
+/** @deprecated Use IbexSmsSignUpStep1Request + IbexSmsSignUpConfirmRequest instead */
+export type IbexSmsSignUpRequest = {
+  telephone: string;
+  phonePolicy?: "frMobile" | "any";
+  smsDryRun?: boolean;
+  email?: string;
+  companyRegistrationNumber?: string;
+};
 
 export type IbexSmsSignInStep1Request = {
   telephone: string;

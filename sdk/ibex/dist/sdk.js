@@ -13,6 +13,7 @@ export class IbexSdk {
     blockchainId;
     defaultHeaders;
     resolveRpIdFn;
+    webauthnProvider;
     keyToken;
     keyRefreshToken;
     keyExternalUserId;
@@ -23,6 +24,7 @@ export class IbexSdk {
         this.blockchainId = config.blockchainId;
         this.defaultHeaders = config.defaultHeaders || {};
         this.resolveRpIdFn = config.resolveRpId || defaultResolveRpId;
+        this.webauthnProvider = config.webauthnProvider;
         const p = config.storagePrefix ? `${config.storagePrefix}_` : "";
         this.keyToken = `${p}${IBEX_TOKEN_KEY}`;
         this.keyRefreshToken = `${p}${IBEX_REFRESH_TOKEN_KEY}`;
@@ -63,57 +65,96 @@ export class IbexSdk {
         this.storage.remove(this.keyExternalUserId);
         this.dispatchSessionChanged();
     }
-    async authenticateWithPasskey() {
+    getCredentialProvider() {
+        if (this.webauthnProvider)
+            return this.webauthnProvider;
+        if (typeof navigator !== "undefined" && navigator.credentials) {
+            return {
+                async create(options) {
+                    const cred = await navigator.credentials.create({ publicKey: options });
+                    if (!cred)
+                        throw new Error("Aucune attestation WebAuthn retournée");
+                    return cred;
+                },
+                async get(options) {
+                    const cred = await navigator.credentials.get({ publicKey: options });
+                    if (!cred)
+                        throw new Error("Aucune assertion WebAuthn retournée");
+                    return cred;
+                },
+            };
+        }
+        throw new Error("WebAuthn non disponible. Fournissez webauthnProvider dans IbexSdkConfig pour un environnement Node.js.");
+    }
+    async signInWithPasskey() {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
-        let tokens = null;
-        try {
-            const signInOptionsPayload = await this.jsonFetch("/v1.2/auth/sign-in", {
-                method: "GET",
-                headers: rpHeaders,
-            });
-            const signInOptions = normalizeSignInOptions(signInOptionsPayload);
-            const assertion = (await navigator.credentials.get({
-                publicKey: signInOptions,
-            }));
-            if (!assertion)
-                throw new Error("Aucune assertion WebAuthn retournée");
-            const signInPayload = await this.jsonFetch("/v1.2/auth/sign-in", {
-                method: "POST",
-                headers: rpHeaders,
-                body: { credential: serializeAssertion(assertion) },
-            });
-            tokens = extractAuthTokens(signInPayload);
-        }
-        catch {
-            tokens = null;
-        }
+        const provider = this.getCredentialProvider();
+        const signInOptionsPayload = await this.jsonFetch("/v1.2/auth/sign-in", {
+            method: "GET",
+            headers: rpHeaders,
+        });
+        const signInOptions = normalizeSignInOptions(signInOptionsPayload);
+        const assertion = await provider.get(signInOptions);
+        const signInPayload = await this.jsonFetch("/v1.2/auth/sign-in", {
+            method: "POST",
+            headers: rpHeaders,
+            body: { credential: serializeAssertion(assertion) },
+        });
+        const tokens = extractAuthTokens(signInPayload);
         if (!tokens?.accessToken) {
-            const signUpHeaders = this.withBlockchainHeader(rpHeaders);
-            const signUpOptionsPayload = await this.jsonFetch("/v1.2/auth/sign-up", {
-                method: "GET",
-                headers: signUpHeaders,
-            });
-            const signUpOptions = normalizeSignUpOptions(signUpOptionsPayload);
-            const attestation = (await navigator.credentials.create({
-                publicKey: signUpOptions,
-            }));
-            if (!attestation)
-                throw new Error("Aucune attestation WebAuthn retournée");
-            const signUpPayload = await this.jsonFetch("/v1.2/auth/sign-up", {
-                method: "POST",
-                headers: signUpHeaders,
-                body: { credential: serializeAttestation(attestation) },
-            });
-            tokens = extractAuthTokens(signUpPayload);
-        }
-        if (!tokens?.accessToken) {
-            throw new Error("JWT IBEx introuvable dans la réponse");
+            throw new Error("JWT IBEx introuvable dans la réponse sign-in");
         }
         this.setSession(tokens, null);
         return tokens;
     }
-    async signUpWithSms(request) {
+    async signUpWithPasskey() {
+        const rpId = this.resolveRpId();
+        const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        const signUpHeaders = this.withBlockchainHeader(rpHeaders);
+        const provider = this.getCredentialProvider();
+        const signUpOptionsPayload = await this.jsonFetch("/v1.2/auth/sign-up", {
+            method: "GET",
+            headers: signUpHeaders,
+        });
+        const signUpOptions = normalizeSignUpOptions(signUpOptionsPayload);
+        const attestation = await provider.create(signUpOptions);
+        const signUpPayload = await this.jsonFetch("/v1.2/auth/sign-up", {
+            method: "POST",
+            headers: signUpHeaders,
+            body: { credential: serializeAttestation(attestation) },
+        });
+        const tokens = extractAuthTokens(signUpPayload);
+        if (!tokens?.accessToken) {
+            throw new Error("JWT IBEx introuvable dans la réponse sign-up");
+        }
+        this.setSession(tokens, null);
+        return tokens;
+    }
+    async authenticateWithPasskey() {
+        try {
+            return await this.signInWithPasskey();
+        }
+        catch {
+            // sign-in failed, fallback to sign-up
+        }
+        return this.signUpWithPasskey();
+    }
+    async initSmsSignUp(request) {
+        const rpId = this.resolveRpId();
+        const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
+        if (request.phonePolicy)
+            params.set("phonePolicy", request.phonePolicy);
+        if (typeof request.smsDryRun === "boolean")
+            params.set("smsDryRun", String(request.smsDryRun));
+        const payload = await this.jsonFetch(`/v1.2/auth/sign-up?${params.toString()}`, {
+            method: "GET",
+            headers: rpHeaders,
+        });
+        return payload;
+    }
+    async confirmSmsSignUp(request) {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
         const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
@@ -128,6 +169,26 @@ export class IbexSdk {
             this.setSession(tokens, externalUserId);
         }
         return response;
+    }
+    /** @deprecated Use initSmsSignUp() + confirmSmsSignUp() for the 2-step flow */
+    async signUpWithSms(request) {
+        const step1 = await this.initSmsSignUp({
+            telephone: request.telephone,
+            phonePolicy: request.phonePolicy,
+            smsDryRun: request.smsDryRun,
+        });
+        const code = step1.code;
+        if (!code) {
+            throw new Error("signUpWithSms requires dry-run mode (code returned in step 1) or use initSmsSignUp + confirmSmsSignUp separately");
+        }
+        return this.confirmSmsSignUp({
+            externalUserId: step1.externalUserId,
+            telephone: request.telephone,
+            code,
+            phonePolicy: request.phonePolicy,
+            email: request.email,
+            companyRegistrationNumber: request.companyRegistrationNumber,
+        });
     }
     async signInWithSms(request) {
         const rpId = this.resolveRpId();
@@ -672,9 +733,12 @@ export class IbexSdk {
         };
     }
     async authenticatedJsonFetch(path, accessToken, options) {
+        const rpId = this.resolveRpId();
         const headers = {
             "X-IBEx-Auth": `Bearer ${accessToken}`,
             "Authorization": `Bearer ${accessToken}`,
+            "X-Rp-Id": rpId,
+            "X-RpId": rpId,
             ...(options.headers || {}),
         };
         return this.jsonFetch(path, { ...options, headers });

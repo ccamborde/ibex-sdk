@@ -270,7 +270,37 @@ describe("IbexSdk users/me endpoints", () => {
 describe("IbexSdk SMS authentication (wallet=sms)", () => {
   const resolveRpId = () => "localhost";
 
-  it("signUpWithSms sends POST with wallet=sms and persists session", async () => {
+  it("initSmsSignUp sends GET with query params and returns externalUserId", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(200, { wallet: "sms", externalUserId: "user-sms-1", code: "654321" }),
+    );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+      resolveRpId,
+    });
+
+    const result = await sdk.initSmsSignUp({ telephone: "+33612345678", phonePolicy: "frMobile", smsDryRun: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchMock.mock.calls[0]!;
+    const parsedUrl = new URL(String(url));
+    expect(parsedUrl.pathname).toBe("/v1.2/auth/sign-up");
+    expect(parsedUrl.searchParams.get("wallet")).toBe("sms");
+    expect(parsedUrl.searchParams.get("telephone")).toBe("+33612345678");
+    expect(parsedUrl.searchParams.get("phonePolicy")).toBe("frMobile");
+    expect(parsedUrl.searchParams.get("smsDryRun")).toBe("true");
+    expect(opts?.method).toBe("GET");
+
+    expect(result.wallet).toBe("sms");
+    expect(result.externalUserId).toBe("user-sms-1");
+    expect(result.code).toBe("654321");
+    expect(storage.get(IBEX_TOKEN_KEY)).toBeNull();
+  });
+
+  it("confirmSmsSignUp sends POST with externalUserId+code and persists session", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse(200, {
@@ -285,7 +315,6 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
         subject: "user-sms-1",
         sessionId: "sess-123",
         chatbotFullURL: "https://safe-testnet.ib.exchange/chatbot/?session=sess-123",
-        code: "654321",
       }),
     );
     const sdk = createIbexSdk({
@@ -295,7 +324,12 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
       resolveRpId,
     });
 
-    const result = await sdk.signUpWithSms({ telephone: "+33612345678", phonePolicy: "frMobile" });
+    const result = await sdk.confirmSmsSignUp({
+      externalUserId: "user-sms-1",
+      telephone: "+33612345678",
+      code: "654321",
+      phonePolicy: "frMobile",
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, opts] = fetchMock.mock.calls[0]!;
@@ -303,17 +337,18 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
     expect(opts?.method).toBe("POST");
     const body = JSON.parse(opts?.body as string);
     expect(body.wallet).toBe("sms");
+    expect(body.externalUserId).toBe("user-sms-1");
     expect(body.telephone).toBe("+33612345678");
+    expect(body.code).toBe("654321");
     expect(body.phonePolicy).toBe("frMobile");
 
     expect(result.authMethod).toBe("SMS");
-    expect(result.code).toBe("654321");
     expect(storage.get(IBEX_TOKEN_KEY)).toBe("sms-access-token");
     expect(storage.get(IBEX_REFRESH_TOKEN_KEY)).toBe("sms-refresh-token");
     expect(storage.get(IBEX_EXTERNAL_USER_ID_KEY)).toBe("user-sms-1");
   });
 
-  it("signUpWithSms sends KYB fields when provided", async () => {
+  it("confirmSmsSignUp sends KYB fields when provided", async () => {
     const storage = new MemoryStorage();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse(200, {
@@ -331,16 +366,82 @@ describe("IbexSdk SMS authentication (wallet=sms)", () => {
       resolveRpId,
     });
 
-    await sdk.signUpWithSms({
+    await sdk.confirmSmsSignUp({
+      externalUserId: "company-1",
       telephone: "+33612345678",
+      code: "123456",
       email: "contact@company.fr",
       companyRegistrationNumber: "123456789",
     });
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
     expect(body.wallet).toBe("sms");
+    expect(body.externalUserId).toBe("company-1");
+    expect(body.code).toBe("123456");
     expect(body.email).toBe("contact@company.fr");
     expect(body.companyRegistrationNumber).toBe("123456789");
+  });
+
+  it("signUpWithSms (deprecated convenience) chains GET+POST in dry-run mode", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse(200, { wallet: "sms", externalUserId: "user-sms-1", code: "654321" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "sms-access-token",
+          refresh_token: "sms-refresh-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          authMethod: "SMS",
+          hasPasskey: false,
+          wallet: "sms",
+          externalUserId: "user-sms-1",
+          subject: "user-sms-1",
+        }),
+      );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+      resolveRpId,
+    });
+
+    const result = await sdk.signUpWithSms({ telephone: "+33612345678", phonePolicy: "frMobile" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url0, opts0] = fetchMock.mock.calls[0]!;
+    expect(opts0?.method).toBe("GET");
+    expect(String(url0)).toContain("wallet=sms");
+
+    const [url1, opts1] = fetchMock.mock.calls[1]!;
+    expect(opts1?.method).toBe("POST");
+    expect(String(url1)).toBe("https://passkeys-testnet.ibex.fi/v1.2/auth/sign-up");
+    const body = JSON.parse(opts1?.body as string);
+    expect(body.externalUserId).toBe("user-sms-1");
+    expect(body.code).toBe("654321");
+
+    expect(result.authMethod).toBe("SMS");
+    expect(storage.get(IBEX_TOKEN_KEY)).toBe("sms-access-token");
+    expect(storage.get(IBEX_EXTERNAL_USER_ID_KEY)).toBe("user-sms-1");
+  });
+
+  it("signUpWithSms throws when no code returned (non dry-run)", async () => {
+    const storage = new MemoryStorage();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(200, { wallet: "sms", externalUserId: "user-sms-1" }),
+    );
+    const sdk = createIbexSdk({
+      apiBaseUrl: "https://passkeys-testnet.ibex.fi",
+      fetchImpl: fetchMock,
+      storage,
+      resolveRpId,
+    });
+
+    await expect(sdk.signUpWithSms({ telephone: "+33612345678" })).rejects.toThrow(
+      /dry-run mode/,
+    );
   });
 
   it("signInWithSms triggers OTP via GET with query params", async () => {
