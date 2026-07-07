@@ -1,5 +1,6 @@
 import type {
   IbexDevToolsCompanyCheckInput,
+  IbexDevToolsCompanyCheckPeppolResponse,
   IbexDevToolsCompanyCheckResponse,
   IbexDevToolsConfig,
   IbexDevToolsCryptoTopupInput,
@@ -98,10 +99,13 @@ export class IbexDevToolsClient {
   // ---------------------------------------------------------------------------
 
   async companyCheck(input: IbexDevToolsCompanyCheckInput): Promise<IbexDevToolsCompanyCheckResponse> {
-    return (await this.jsonFetch("/api/admin/devtools/company/check", {
-      method: "POST",
-      body: input,
-    })) as unknown as IbexDevToolsCompanyCheckResponse;
+    const path = this.buildPathWithQuery("/v1.2/domain/company/check", input as JsonObject);
+    return (await this.jsonFetch(path)) as unknown as IbexDevToolsCompanyCheckResponse;
+  }
+
+  async companyCheckPeppol(input: IbexDevToolsCompanyCheckInput): Promise<IbexDevToolsCompanyCheckPeppolResponse> {
+    const path = this.buildPathWithQuery("/v1.2/domain/company/check/peppol", input as JsonObject);
+    return (await this.jsonFetch(path)) as unknown as IbexDevToolsCompanyCheckPeppolResponse;
   }
 
   // ---------------------------------------------------------------------------

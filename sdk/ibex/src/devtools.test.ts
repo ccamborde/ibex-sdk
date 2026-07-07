@@ -166,14 +166,11 @@ describe("IbexDevToolsClient KY endpoints", () => {
 // ---------------------------------------------------------------------------
 
 describe("IbexDevToolsClient company endpoint", () => {
-  it("companyCheck sends POST with siren", async () => {
+  it("companyCheck sends GET with siren query", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse(200, {
-        existence: { exists: true, inpi: true, rechercheEntreprises: true },
-        companyName: "GOOGLE FRANCE",
-        companyRegistrationNumber: "443061841",
-        representatives: [{ fullName: "PAUL Manicle", opensanctionsResult: { count: 0, results: [] } }],
-        beneficiairesEffectifs: [{ fullName: "Larry PAGE", ppeResult: { is_elu: false, total_mandats: 0, results: [] } }],
+        result: "OK",
+        kycEligiblePersons: [{ firstName: "Christophe", lastName: "CAMBORDE", role: "Président de SAS", birthDate: "1975-11" }],
       }),
     );
     const client = createIbexDevToolsClient({ apiBaseUrl: BASE, apiKey: "k", fetchImpl: fetchMock });
@@ -181,11 +178,31 @@ describe("IbexDevToolsClient company endpoint", () => {
     const result = await client.companyCheck({ siren: "123456789" });
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe(`${BASE}/api/admin/devtools/company/check`);
-    expect(init?.method).toBe("POST");
-    expect(result.existence?.exists).toBe(true);
-    expect(result.companyRegistrationNumber).toBe("443061841");
-    expect(result.representatives?.[0]?.fullName).toBe("PAUL Manicle");
+    expect(String(url)).toBe(`${BASE}/v1.2/domain/company/check?siren=123456789`);
+    expect(init?.method).toBe("GET");
+    expect(result.result).toBe("OK");
+    expect(result.kycEligiblePersons?.[0]?.lastName).toBe("CAMBORDE");
+  });
+
+  it("companyCheckPeppol sends GET with siren query", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(200, {
+        registered: true,
+        participantId: "0225:833754302",
+        entityName: "ARTEMIS CONSEIL",
+        countryCode: "FR",
+        additionalInfo: "FR_ASSUJETTI_ACTIVE",
+      }),
+    );
+    const client = createIbexDevToolsClient({ apiBaseUrl: BASE, apiKey: "k", fetchImpl: fetchMock });
+
+    const result = await client.companyCheckPeppol({ siren: "833754302" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(`${BASE}/v1.2/domain/company/check/peppol?siren=833754302`);
+    expect(init?.method).toBe("GET");
+    expect(result.registered).toBe(true);
+    expect(result.participantId).toBe("0225:833754302");
   });
 });
 

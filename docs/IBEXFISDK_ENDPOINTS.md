@@ -4,6 +4,7 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 
 ## Changelog
 
+- **2026-07-07** `modify` `devtools.companyCheck(input)` now targets `GET /v1.2/domain/company/check` (query `siren`) instead of legacy `POST /api/admin/devtools/company/check`; added `devtools.companyCheckPeppol(input)` for `GET /v1.2/domain/company/check/peppol`.
 - **2026-07-02** `modify` SMS sign-up is now a 2-step flow: added `initSmsSignUp()` (GET) and `confirmSmsSignUp()` (POST). `signUpWithSms()` deprecated as dry-run-only convenience wrapper. Added types `IbexSmsSignUpStep1Request`, `IbexSmsSignUpStep1Response`, `IbexSmsSignUpConfirmRequest`.
 - **2026-06-23** `modify` `IbexDevToolsCompanyCheckResponse` type: aligned with structured `POST /api/admin/devtools/company/check` response (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) instead of legacy `OK/KO`.
 - **2026-06-03** `modify` `addSepaIban(payload)` -> `POST /v1.2/sepa/iban/add`: behavior now depends on domain flag `isSepaIbanAddWebauthnEnabled`. Added `label` optional parameter to request body.
@@ -2875,7 +2876,8 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 | `devtools.kyEnroll(input)` | `POST` | `/api/admin/devtools/ky/enroll` | Create a KYC session |
 | `devtools.kybEnroll(input)` | `POST` | `/api/admin/devtools/kyb/enroll` | Create a KYB enrollment |
 | `devtools.kySmsVerified(input)` | `POST` | `/api/admin/devtools/ky/sms-verified` | Manually set SMS verification data |
-| `devtools.companyCheck(input)` | `POST` | `/api/admin/devtools/company/check` | Fast KYB pre-check on a SIREN |
+| `devtools.companyCheck(input)` | `GET` | `/v1.2/domain/company/check` | Tenant-facing KYB pre-check on a SIREN (API key) |
+| `devtools.companyCheckPeppol(input)` | `GET` | `/v1.2/domain/company/check/peppol` | Peppol Directory lookup for a SIREN (API key) |
 | `devtools.sepaTopup(input)` | `POST` | `/api/admin/devtools/sepa/topup` | SEPA faucet topup (dev only) |
 | `devtools.cryptoTopup(input)` | `POST` | `/api/admin/devtools/crypto/topup` | Crypto faucet topup (dev only) |
 
@@ -2896,7 +2898,8 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 | `IbexDevToolsKySmsVerifiedInput` | Input for `kySmsVerified` (externalUserId, smsVerifiedTelephone?, smsVerifiedAt?) |
 | `IbexDevToolsKySmsVerifiedResponse` | SMS verified result (success, kyCustomerId, smsVerifiedTelephone, smsVerifiedAt) |
 | `IbexDevToolsCompanyCheckInput` | Input for `companyCheck` (siren) |
-| `IbexDevToolsCompanyCheckResponse` | Structured company check payload (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) |
+| `IbexDevToolsCompanyCheckResponse` | Domain company pre-check result (`result`, `kycEligiblePersons[]`) |
+| `IbexDevToolsCompanyCheckPeppolResponse` | Peppol lookup result (`registered`, `participantId`, `entityName`, `countryCode`, `additionalInfo`) |
 | `IbexDevToolsSepaTopupInput` | Input for `sepaTopup` (targetIban, targetName?, amount?, amountEur?, channel?, remittanceInfo?) |
 | `IbexDevToolsSepaTopupResponse` | Topup result (success, data: { source, identity, payment }) |
 | `IbexDevToolsCryptoTopupInput` | Input for `cryptoTopup` (externalUserId, wallet?) |
@@ -2906,7 +2909,7 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 
 The following API families are not wrapped by high-level SDK methods in `sdk/ibex` yet:
 
-- domain/admin/config endpoints (`/v1.2/domain/*`, `/v1.2/domains/*`)
+- domain/admin/config endpoints (`/v1.2/domains/*`, and `/v1.2/domain/*` except `GET /v1.2/domain/company/check` and `GET /v1.2/domain/company/check/peppol`)
 - safe-provision routes (deploy, lazy-create)
 - batch operations (`batch-intent` / `batch-execute`)
 - automation module config (`PUT /v1.2/safes/{safeAddress}/automation-module/config`)
