@@ -56,6 +56,7 @@ import type {
   IbexSmsSignInStep1Request,
   IbexSmsSignInStep1Response,
   IbexSmsSignInConfirmRequest,
+  IbexSmsSignInResponse,
   IbexEmailRecoverRequest,
   IbexEmailRecoverResponse,
   IbexKycIframeRequest,
@@ -264,7 +265,8 @@ export class IbexSdk {
 
   async initSmsSignUp(request: IbexSmsSignUpStep1Request): Promise<IbexSmsSignUpStep1Response> {
     const rpId = this.resolveRpId();
-    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const rpHeaders: Record<string, string> = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    if (request.endUserIp) rpHeaders["X-End-User-IP"] = request.endUserIp;
     const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
     if (request.phonePolicy) params.set("phonePolicy", request.phonePolicy);
     if (typeof request.smsDryRun === "boolean") params.set("smsDryRun", String(request.smsDryRun));
@@ -277,11 +279,13 @@ export class IbexSdk {
 
   async confirmSmsSignUp(request: IbexSmsSignUpConfirmRequest): Promise<IbexSmsSignUpResponse> {
     const rpId = this.resolveRpId();
-    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const rpHeaders: Record<string, string> = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    if (request.endUserIp) rpHeaders["X-End-User-IP"] = request.endUserIp;
+    const { endUserIp: _, ...body } = request;
     const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
       method: "POST",
       headers: rpHeaders,
-      body: { wallet: "sms", ...request },
+      body: { wallet: "sms", ...body },
     });
     const response = payload as IbexSmsSignUpResponse;
     const tokens = extractAuthTokens(payload);
@@ -315,7 +319,8 @@ export class IbexSdk {
 
   async signInWithSms(request: IbexSmsSignInStep1Request): Promise<IbexSmsSignInStep1Response> {
     const rpId = this.resolveRpId();
-    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const rpHeaders: Record<string, string> = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    if (request.endUserIp) rpHeaders["X-End-User-IP"] = request.endUserIp;
     const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
     if (request.phonePolicy) params.set("phonePolicy", request.phonePolicy);
     if (typeof request.smsDryRun === "boolean") params.set("smsDryRun", String(request.smsDryRun));
@@ -326,13 +331,15 @@ export class IbexSdk {
     return payload as IbexSmsSignInStep1Response;
   }
 
-  async confirmSmsSignIn(request: IbexSmsSignInConfirmRequest): Promise<IbexTokens> {
+  async confirmSmsSignIn(request: IbexSmsSignInConfirmRequest): Promise<IbexSmsSignInResponse> {
     const rpId = this.resolveRpId();
-    const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    const rpHeaders: Record<string, string> = { "X-Rp-Id": rpId, "X-RpId": rpId };
+    if (request.endUserIp) rpHeaders["X-End-User-IP"] = request.endUserIp;
+    const { endUserIp: _, ...body } = request;
     const payload = await this.jsonFetch("/v1.2/auth/sign-in", {
       method: "POST",
       headers: rpHeaders,
-      body: { wallet: "sms", ...request },
+      body: { wallet: "sms", ...body },
     });
     const tokens = extractAuthTokens(payload);
     if (!tokens?.accessToken) {
@@ -340,7 +347,16 @@ export class IbexSdk {
     }
     const externalUserId = extractExternalUserId(payload);
     this.setSession(tokens, externalUserId);
-    return tokens;
+    return {
+      ...tokens,
+      externalUserId: externalUserId ?? undefined,
+      authMethod: payload.authMethod as string | undefined,
+      hasPasskey: payload.hasPasskey as boolean | undefined,
+      wallet: payload.wallet as string | undefined,
+      chatbotURL: payload.chatbotURL as string | undefined,
+      chatbotFullURL: payload.chatbotFullURL as string | undefined,
+      sessionId: payload.sessionId as string | undefined,
+    };
   }
 
   async refreshSession(): Promise<string> {

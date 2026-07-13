@@ -1,4 +1,4 @@
-export function defaultResolveRpId(hostname = window.location.hostname) {
+export function defaultResolveRpId(hostname = typeof window !== "undefined" ? window.location.hostname : "localhost") {
     const host = hostname.toLowerCase().trim();
     if (!host)
         return "localhost";
@@ -86,6 +86,22 @@ export function normalizeSignInOptions(payload) {
         type: String(c.type || "public-key"),
         transports: Array.isArray(c.transports) ? c.transports : undefined,
     }));
+    let extensions;
+    const ext = options.extensions;
+    if (ext && typeof ext === "object") {
+        const prf = ext.prf;
+        const evalObj = prf?.eval;
+        const first = typeof evalObj?.first === "string" ? fromBase64Url(evalObj.first) : undefined;
+        if (first) {
+            extensions = {
+                prf: {
+                    eval: {
+                        first,
+                    },
+                },
+            };
+        }
+    }
     return {
         challenge: fromBase64Url(challenge),
         rpId: typeof options.rpId === "string" ? options.rpId : undefined,
@@ -94,6 +110,7 @@ export function normalizeSignInOptions(payload) {
             ? options.userVerification
             : undefined,
         allowCredentials: allowCredentials.length > 0 ? allowCredentials : undefined,
+        extensions,
     };
 }
 export function normalizeSignUpOptions(payload) {
@@ -119,7 +136,7 @@ export function normalizeSignUpOptions(payload) {
         challenge: fromBase64Url(String(options.challenge || "")),
         rp: {
             id: typeof rpRaw.id === "string" ? rpRaw.id : undefined,
-            name: String(rpRaw.name || window.location.hostname),
+            name: String(rpRaw.name || (typeof window !== "undefined" ? window.location.hostname : "ibex-sdk")),
         },
         user: {
             id: fromBase64Url(String(userRaw.id || "")),

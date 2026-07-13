@@ -2,6 +2,23 @@
 
 ## Changelog
 
+- **2026-07-10** `create` `GET /v1.2/domain/users` — new tenant-facing endpoint to list externalUserIds with optional KY state filter and pagination (API_KEY auth)
+- **2026-07-07** `create` `GET/POST /v1.2/auth/sign-up` and `GET/POST /v1.2/auth/sign-in` — new optional header `X-End-User-IP` allows B2B backends (authenticated via `x-api-key`) to forward the real end-user IP for rate limiting and audit trail. Ignored when no API key is present (anti-spoofing)
+- **2026-07-07** `modify` `GET /v1.2/auth/sign-up` and `GET /v1.2/auth/sign-in` (wallet=sms) — removed per-IP SMS rate limit (was 10/day, caused false positives for B2B backends sharing a single server IP). Per-phone limit (10/day) and per-rpId limit (10 000/day) remain enforced
+- **2026-07-06** `modify` `POST /v1.2/auth/enroll` and `POST /v1.2/auth/sign-up` (wallet=sms, KYB) — duplicate SIREN validation is now automatically bypassed when the domain has `isKybSkipSirenCheck` enabled (per-rpId setting, configurable via admin)
+- **2026-07-07** `modify` `GET /v1.2/domain/company/check/peppol` — added `smpUrl`, `naptrDomain`, `docTypes[]` fields from upstream IbexSafe
+- **2026-07-06** `create` `GET /v1.2/domain/company/check/peppol` — Peppol Directory lookup on a French SIREN number (registered, participantId, entityName)
+- **2026-07-06** `create` `GET /v1.2/domain/company/check` — new tenant-facing KYB pre-check on a French SIREN number (API_KEY auth, replaces devtools-only endpoint)
+- **2026-07-06** `modify` `GET /v1.2/domain/users/:id` — `ky` field now reflects real-time KY status from upstream verification (was previously not persisted)
+- **2026-07-06** `modify` `POST /v1.2/auth/sign-in` (wallet=sms) — response now includes `chatbotURL`, `chatbotFullURL` and `sessionId` when user KYC is not yet completed (KY=0), matching sign-up behavior
+- **2026-07-01** `modify` `GET /v1.2/auth/sign-up` (wallet=sms) — SMS sign-up is now a 2-step flow: `GET` triggers OTP via IbexSafe and returns `externalUserId`, `POST` confirms OTP code and performs KY enrollment
+- **2026-07-01** `modify` `POST /v1.2/auth/sign-up` (wallet=sms) — requires `externalUserId` + `code` from GET step; no longer creates user inline (reuses user from GET)
+- **2026-06-24** `modify` `POST /api/admin/devtools/sepa/topup` — removed internal `userId` from response example (`identity` now exposes `externalUserId` + `rpId`)
+- **2026-06-24** `modify` `GET/PUT/PATCH /v1.2/domain/kv` — removed internal `userId` from tenant webhook contract (envelope + `data`)
+- **2026-06-24** `modify` `POST /v1.2/auth/iframe` and `POST /v1.2/auth/enroll` — internal `userId` is stripped from proxied KYC/KYB responses
+- **2026-06-24** `modify` `GET/PUT/PATCH /v1.2/domain/kv` — clarified KYC webhook payload uses tenant `externalUserId` only (no `userId` in `data`)
+- **2026-06-24** `modify` `GET/PUT/PATCH /v1.2/domain/kv` — documented tenant webhook payload examples for `user.ky.updated` (including `status`, `firstName`, `lastName`) and `user.iban.updated`
+- **2026-06-23** `modify` `POST /api/admin/devtools/company/check` — response now returns full structured company data (existence, representatives, beneficial owners, sanctions/PEP screening) instead of simple OK/KO
 - **2026-06-01** `remove` `POST /v1.2/iban/create` — deprecated provider-agnostic flow removed from v1.2
 - **2026-06-01** `modify` `POST /v1.2/sepa/iban/add` — behavior is now controlled by domain flag `isSepaIbanAddWebauthnEnabled` (direct POST when `FALSE`, approval challenge when `TRUE`)
 - **2026-06-01** `create` `PUT /v1.2/sepa/iban/add` — confirms WebAuthn and executes upstream IBAN creation in IBEXSAFE
@@ -44,6 +61,12 @@ This document describes the IBEX FI API **v1.2** — routes under the **`/v1.2/`
 
 - Requests are scoped by `Host` (or origin). Use the same domain as your app (e.g. `https://app.ibex.fi`).
 
+**Optional headers**
+
+| Header | Auth required | Used by | Description |
+|--------|---------------|---------|-------------|
+| `X-End-User-IP` | `x-api-key` | sign-up, sign-in | Real end-user IP address forwarded by a B2B backend. Used for SMS rate limiting and Login audit trail. **Only trusted when the request is authenticated via `x-api-key`** — ignored otherwise to prevent IP spoofing from browser clients. Value must be a valid IPv4 or IPv6 address (e.g. `93.23.45.12`, `2001:db8::1`). When absent, the server falls back to `X-Forwarded-For` / `X-Real-IP` / socket IP. |
+
 ---
 
 ## Version matrix (summary)
@@ -58,7 +81,7 @@ This document describes the IBEX FI API **v1.2** — routes under the **`/v1.2/`
 | Safes           | automation-module/config, swap/quote, operations, batch-*, bitcoin | ✓    |
 | SEPA            | iban/add, payments, transactions, mandates | ✓    |
 | Domains (`/v1.2/domains/`) | dns-challenge, PUT create, list, detail, update, quota | ✓ |
-| Domain KV (`/v1.2/domain/kv`) | GET/PUT/PATCH JSON store (API key only) | ✓    |
+| Domain KV (`/v1.2/domain/kv`) | GET/PUT/PATCH JSON store, users/:id, company/check (API key only) | ✓    |
 
 ---
 
@@ -74,18 +97,28 @@ This document describes the IBEX FI API **v1.2** — routes under the **`/v1.2/`
 
 | Parameter | Type | v1.2 | Description |
 |-----------|------|------|-------------|
-| `wallet` | string | ✓ | `passkeys` (default), `kdf`, `email` |
+| `wallet` | string | ✓ | `passkeys` (default), `kdf`, `email`, `7702`, `sms` |
 | `flow` | string | ✓ | e.g. `pin-kdf` (same as wallet=kdf) |
 | `email` | string | ✓ | Required if `wallet=email` |
+| `telephone` | string | ✓ | Required if `wallet=sms` (E.164 format, e.g. `+33612345678`) |
+| `phonePolicy` | string | ✓ | `wallet=sms` only: `frMobile` or `any` (default) |
+| `smsDryRun` | boolean | ✓ | `wallet=sms` only: if `false`, send real SMS. Default `true` outside production/preprod |
 | `user.name`, `userName` | string | ✓ | Override WebAuthn user.name |
 | `user.displayname`, `userDisplayName` | string | ✓ | Override WebAuthn user.displayName |
 | `keyName`, `keyDisplayName` | string | ✓ | Passkey display name |
 | `passkeys` | string | (legacy) | `TRUE` / `FALSE` |
 
+**Optional headers:**
+
+| Header | Description |
+|--------|-------------|
+| `X-End-User-IP` | Real end-user IP (B2B only — requires `x-api-key` auth). Used for SMS rate limiting and Login audit trail. See [Optional headers](#optional-headers) above. |
+
 **Response (200):**  
 - **Passkeys (default)**: `credentialRequestOptions` (rp, user, challenge, pubKeyCredParams, authenticatorSelection, attestation, timeout).  
 - **wallet=kdf**: JWT + `authMethod`, `flow`, `salt`, `kdf`, `challenge`, `serverSignature`, etc.  
 - **wallet=email**: JWT + `authMethod`, `emailOtpExpiresAt`, `challenge`, etc.  
+- **wallet=sms**: `{ wallet, externalUserId, code? }` — OTP sent via SMS; `code` is included only in dry-run/non-production mode.  
 - **passkeys=FALSE** + email (legacy): JWT + `emailValidationRequired`.
 
 **Example request (passkeys):**
@@ -123,7 +156,6 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 **200 Response (wallet=kdf):**
 ```json
 {
-  "userId": "<userId>",
   "externalUserId": "<externalUserId>",
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -151,7 +183,6 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 **200 Response (wallet=email):**
 ```json
 {
-  "userId": "<userId>",
   "externalUserId": "<externalUserId>",
   "access_token": "...",
   "refresh_token": "...",
@@ -178,6 +209,8 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 - **Auth**: PUBLIC (EXTERNAL)
 - **Tags**: EXTERNAL, Authentication
 - **Description**: Complete signup by validating passkey credential and/or email code
+
+**Optional headers:** `X-End-User-IP` — see [GET /sign-up](#sign-up-get-options).
 
 **Request body:**
 - `credential` (object, required if passkeys=TRUE in GET): WebAuthn credential from `navigator.credentials.create()`
@@ -315,29 +348,70 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
 
 ### Sign Up — SMS wallet (`wallet=sms`)
 
-- **POST** `/v1.2/auth/sign-up`
-- **Auth**: PUBLIC (EXTERNAL)
-- **Description**: Creates a new user account with SMS-based authentication in a single POST (no prior GET required). The phone number is registered in IbexSafe for future OTP-based sign-in.
+Two-step flow: `GET` triggers the SMS OTP, then `POST` confirms the code and creates the user account with KYC/KYB enrollment.
+
+> **B2B backends:** pass `X-End-User-IP` header (requires `x-api-key`) to forward the real end-user IP for rate limiting and audit. See [Optional headers](#optional-headers).
+
+**Step 1 — Trigger OTP:**
+
+```http
+GET /v1.2/auth/sign-up?wallet=sms&telephone=+33612345678
+Host: app.ibex.fi
+```
+
+| Query | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wallet` | string | Yes | Must be `"sms"` |
+| `telephone` | string | Yes | E.164 format (e.g. `+33612345678`) |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` (default) |
+| `smsDryRun` | boolean | No | If `false`, send a real SMS. Default: `true` outside production/preprod |
+
+Triggers an SMS OTP to the provided phone number via IbexSafe. A user and `externalUserId` are created and returned for the next step.
+
+**200 Response:**
+
+```json
+{ "wallet": "sms", "externalUserId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+> **Dry-run behavior:** When dry-run is active (`smsDryRun=true`, default outside production/preprod), the response includes a `code` field: `{ "wallet": "sms", "externalUserId": "...", "code": "320824" }`. In production/preprod, dry-run is ignored upstream and no code is returned.
+
+**Rate limiting:** 10 SMS/day per phone number, 10 000/day per tenant rpId. Shared counters with sign-in SMS. Rate limits only enforced when `smsDryRun=false`.
+
+**Step 2 — Confirm OTP + KY enrollment:**
+
+```http
+POST /v1.2/auth/sign-up
+Content-Type: application/json
+
+{ "wallet": "sms", "externalUserId": "550e8400-...", "telephone": "+33612345678", "code": "123456" }
+```
 
 **Body (KYC — individual):**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `wallet` | string | Yes | Must be `"sms"` |
-| `telephone` | string | Yes | E.164 format (e.g. `+33612345678`) |
-| `phonePolicy` | string | No | `"frMobile"` or `"any"` (default) |
-| `smsDryRun` | boolean | No | If `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production. |
+| `externalUserId` | string | Yes | From GET response (step 1) |
+| `telephone` | string | Yes | Same phone as step 1 |
+| `code` | string | Yes | 4-8 digit OTP received by SMS |
+| `phonePolicy` | string | No | `"frMobile"` or `"any"` |
 
 **Body (KYB — company):**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `wallet` | string | Yes | Must be `"sms"` |
-| `telephone` | string | Yes | E.164 format |
+| `externalUserId` | string | Yes | From GET response (step 1) |
+| `telephone` | string | Yes | Same phone as step 1 |
+| `code` | string | Yes | 4-8 digit OTP received by SMS |
 | `email` | string | Yes | Contact email |
 | `companyRegistrationNumber` | string | Yes | SIREN (9 digits) |
 | `phonePolicy` | string | No | `"frMobile"` or `"any"` |
-| `smsDryRun` | boolean | No | If `false`, send a real SMS. Default: `true` in non-production (skip SMS, return `code` in response). Ignored in production. |
+
+> In KYB mode, `telephone` is forwarded to the enrollment flow as the initial SMS OTP value (still editable by the end-user in the verification UI).
+>
+> If the domain has `isKybSkipSirenCheck` enabled, duplicate SIREN validation is automatically bypassed (allows re-enrollment with the same SIREN for a different user).
 
 **200 Response:**
 
@@ -351,21 +425,25 @@ Also keep standard WebAuthn conversions in place (`challenge`, and `user.id` for
   "hasPasskey": false,
   "wallet": "sms",
   "externalUserId": "550e8400-e29b-41d4-a716-446655440000",
-  "sessionId": "...",
-  "chatbotFullURL": "https://safe-testnet.ib.exchange/chatbot/?session=...",
-  "code": "123456"
+  "sessionId": "94de008e-e21f-4934-993b-0aaab2f977a6",
+  "chatbotURL": "https://safe.ib.exchange/chatbot/",
+  "chatbotFullURL": "https://safe.ib.exchange/chatbot/?session=94de008e-..."
 }
 ```
 
-> **Development only (`NODE_ENV=development`):** When IbexSafe operates in dryRun mode (no real SMS sent), the response includes a `code` field with the OTP for testing purposes. This field is **never** returned in production environments.
+| Field | Type | Description |
+|-------|------|-------------|
+| `sessionId` | string | KYC session identifier |
+| `chatbotURL` | string | Base URL for the KYC chatbot |
+| `chatbotFullURL` | string | Full URL including the session parameter — use this to redirect the user to complete KYC |
 
-**Rate limiting:** 3 SMS/day per phone number, 10/day per IP, 100/day per tenant. Shared counters with sign-in SMS.
-
-**Errors:** `400` invalid phone format or missing fields · `429` rate limit exceeded
+**Errors:** `400` invalid phone format, missing fields, invalid/expired code, externalUserId mismatch · `429` rate limit exceeded
 
 ---
 
 ### Sign-in — SMS wallet (`wallet=sms`)
+
+> **B2B backends:** pass `X-End-User-IP` header (requires `x-api-key`) to forward the real end-user IP for rate limiting and audit. See [Optional headers](#optional-headers).
 
 **Step 1 — Trigger OTP:**
 
@@ -391,7 +469,7 @@ Triggers an SMS OTP to the registered phone number via IbexSafe.
 
 > **Dry-run behavior:** When dry-run is active (`smsDryRun=true`, default outside production/preprod), the response includes a `code` field: `{ "wallet": "sms", "code": "123456" }` for testing. In production/preprod, dry-run is ignored upstream and no code is returned.
 
-**Rate limiting:** Same shared counters as sign-up (3/day per phone, 10/day per IP, 100/day per tenant) **only when `smsDryRun=false`**.
+**Rate limiting:** Same shared counters as sign-up (10/day per phone, 10 000/day per tenant rpId) **only when `smsDryRun=false`**.
 
 **Step 2 — Confirm OTP:**
 
@@ -410,7 +488,46 @@ Content-Type: application/json
 | `code` | string | Yes | 4-8 digit OTP received by SMS |
 | `phonePolicy` | string | No | `"frMobile"` or `"any"` |
 
-**200 Response:** Standard JWT response (`access_token`, `refresh_token`, `expires_in`, `authMethod: "SMS"`, etc.)
+**200 Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "SMS",
+  "hasPasskey": false,
+  "wallet": "sms"
+}
+```
+
+**KYC fields (when KY is not completed):**
+
+When the user's KYC status is still pending (KY=0), the response additionally includes the KYC session fields, allowing the client to redirect the user to complete identity verification — same behavior as the sign-up response:
+
+| Field | Type | Condition | Description |
+|-------|------|-----------|-------------|
+| `chatbotURL` | string | KY pending | Base URL for the KYC chatbot |
+| `chatbotFullURL` | string | KY pending | Full URL including the session parameter |
+| `sessionId` | string | KY pending | KYC session identifier |
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "authMethod": "SMS",
+  "hasPasskey": false,
+  "wallet": "sms",
+  "chatbotURL": "https://safe.ib.exchange/chatbot/",
+  "chatbotFullURL": "https://safe.ib.exchange/chatbot/?session=94de008e-...",
+  "sessionId": "94de008e-e21f-4934-993b-0aaab2f977a6"
+}
+```
+
+> **Note:** Once KYC is completed, these fields are no longer returned — only the standard JWT response is sent.
 
 **Errors:** `400` invalid/expired code, missing GET step · `404` phone not registered · `429` rate limit exceeded
 
@@ -422,6 +539,12 @@ Content-Type: application/json
 |--------|------|------|----------------|
 | GET | `/v1.2/auth/sign-in` | PUBLIC | **v1.2** |
 | POST | `/v1.2/auth/sign-in` | PUBLIC | **v1.2** |
+
+**Optional headers:**
+
+| Header | Description |
+|--------|-------------|
+| `X-End-User-IP` | Real end-user IP (B2B only — requires `x-api-key` auth). Used for SMS rate limiting and Login audit trail. See [Optional headers](#optional-headers) above. |
 
 **Query parameters:**
 - `wallet` (string, optional): `passkeys` (default), `kdf`, `email`, `sms`
@@ -849,6 +972,7 @@ Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `
 
 - Purpose: start KYB enrollment (business onboarding), proxied to IBEX Safe.
 - Body (required): `{ "email", "companyRegistrationNumber", "returnUrl?" }`.
+- If the domain has `isKybSkipSirenCheck` enabled, duplicate SIREN validation is automatically bypassed (allows re-enrollment with the same SIREN).
 - Response (200): enrollment/session payload (e.g. `status`, `sessionId`, `chatbotFullURL`).
 - Response (409): conflict when an enrollment already exists or is not eligible for a new one.
 
@@ -862,6 +986,8 @@ Append new derived addresses to the per-Safe lists. Each entry in `add[]` adds `
 | POST | `/v1.2/users/me` | JWT | **v1.2** |
 | GET | `/v1.2/users/me/operations` | JWT | **v1.2** |
 | GET | `/v1.2/domain/users/:id` | API_KEY | **v1.2** |
+| GET | `/v1.2/domain/company/check` | API_KEY | **v1.2** |
+| GET | `/v1.2/domain/company/check/peppol` | API_KEY | **v1.2** |
 | GET | `/v1.2/users/me/balances` | JWT | **v1.2** (`type` / `identifier` envelope) |
 | GET | `/v1.2/users/me/transactions` | JWT | **v1.2** (same crypto envelope) |
 | GET | `/v1.2/users/me/lending` | JWT | **v1.2** (lending catalog; `?userScoped=true` for user-scoped) |
@@ -1123,7 +1249,181 @@ Write arbitrary key/value data for the authenticated user (`data` object). Keys 
 
 **Path:** `:id` = tenant `externalUserId` (API_KEY only).
 
-**Response (200):** User object (same shape as `/v1.2/users/me` user payload: `ky`, `signers`, `safes`).
+**Headers:** `x-api-key` (tenant API key) ; `Origin` (must match the tenant domain).
+
+**Response (200):** User object scoped to the tenant `rpId`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | The `externalUserId`. |
+| `ky` | string | KY verification status (`"0"` = pending, `"5"` = verified, etc.). Updated in real time when upstream verification completes. |
+| `signers` | array | Signers linked to this user, each with `id`, `addresses[]`, and `safes[]`. |
+
+```json
+{
+  "id": "9d61adb4-0bdb-4ab5-ba36-1d7b337eefe5",
+  "ky": "5",
+  "signers": [
+    {
+      "id": "0xdbae11fdfb98a2ef64d8c86255379853c83b1c43",
+      "addresses": [
+        { "type": "EVM", "address": "0xdbae11fdfb98a2ef64d8c86255379853c83b1c43" }
+      ],
+      "safes": [
+        { "address": "0x67b3a55a4327c2e1e5ea805ffd3cc91d20707e79", "blockchainId": 100, "threshold": 1 }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### GET /v1.2/domain/users
+
+**Auth:** API_KEY (`x-api-key` header).
+
+**Headers:** `x-api-key` (tenant API key) ; `Origin` (must match the tenant domain).
+
+**Description:** Returns a paginated list of `externalUserId`s for the current tenant, optionally filtered by KY state. Useful for back-office dashboards to segment users by verification progress.
+
+**Query parameters:**
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `ky` | string | No | — | Filter by KY state. Valid values: `0` (not started), `2` (submitted), `3` (info requested), `4` (rejected), `5` (accepted), `22` (signature requested), `23` (signature received), `55` (temporary blocked). If omitted, returns all users. |
+| `page` | integer | No | 1 | Page number (1-indexed). |
+| `limit` | integer | No | 50 | Number of results per page (max: 200). |
+
+**Response (200):**
+
+```json
+{
+  "users": [
+    { "externalUserId": "9d61adb4-0bdb-4ab5-ba36-1d7b337eefe5", "ky": "5", "createdAt": "2025-06-15T10:42:00.000Z" },
+    { "externalUserId": "a1b2c3d4-5678-90ab-cdef-1234567890ab", "ky": "5", "createdAt": "2025-06-14T08:30:00.000Z" }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 127
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `users[].externalUserId` | string | The tenant-scoped user identifier. |
+| `users[].ky` | string | Current KY state value. |
+| `users[].createdAt` | string (ISO 8601) | User creation timestamp. |
+| `pagination.page` | integer | Current page. |
+| `pagination.limit` | integer | Page size used. |
+| `pagination.total` | integer | Total number of matching users. |
+
+**Error responses:**
+
+| Code | Condition |
+|------|-----------|
+| 400 | Invalid `ky` value (not in the allowed set). |
+| 401 | Invalid or missing `x-api-key`. |
+
+---
+
+### GET /v1.2/domain/company/check
+
+**Auth:** API_KEY (`x-api-key` header).
+
+**Headers:** `x-api-key` (tenant API key) ; `Origin` (must match the tenant domain).
+
+**Description:** Performs a quick KYB eligibility pre-check on a French SIREN number without creating any record. Looks up the company via INPI / Recherche Entreprises, screens representatives and beneficial owners against sanctions lists and PEP databases, and returns structured company data with an eligibility verdict.
+
+**Query parameters:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `siren` | string | Yes | 9-digit French SIREN number (e.g. `952547255`). |
+
+**Response (200):** Pre-check result with eligibility verdict and KYC-eligible persons.
+
+```json
+{
+  "result": "OK",
+  "kycEligiblePersons": [
+    {
+      "firstName": "Christophe",
+      "lastName": "CAMBORDE",
+      "role": "Président de SAS",
+      "birthDate": "1975-11"
+    }
+  ]
+}
+```
+
+**Error responses:**
+
+| Code | Condition |
+|------|-----------|
+| 400 | Invalid SIREN format (not exactly 9 digits), company not found, or company inactive. |
+| 401 | Invalid or missing `x-api-key`. |
+
+---
+
+### GET /v1.2/domain/company/check/peppol
+
+**Auth:** API_KEY (`x-api-key` header).
+
+**Headers:** `x-api-key` (tenant API key) ; `Origin` (must match the tenant domain).
+
+**Description:** Checks whether a company identified by its SIREN is registered in the [Peppol e-invoicing directory](https://directory.peppol.eu). This is an independent lookup — it does not create any record and does not affect the KYB pre-check verdict.
+
+**Query parameters:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `siren` | string | Yes | 9-digit French SIREN number (e.g. `833754302`). |
+
+**Response (200):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `registered` | boolean | `true` if the SIREN is found in the Peppol Directory, `false` otherwise. |
+| `participantId` | string\|null | Peppol participant identifier (e.g. `0225:833754302`). Present only when `registered` is `true`. |
+| `entityName` | string\|null | Entity name as registered in Peppol. Present only when `registered` is `true`. |
+| `countryCode` | string\|null | ISO 3166-1 alpha-2 country code. Present only when `registered` is `true`. |
+| `additionalInfo` | string\|null | Additional information (e.g. `FR_ASSUJETTI_ACTIVE`). Present only when `registered` is `true`. |
+| `smpUrl` | string\|null | Access point URL (SMP) resolved via DNS NAPTR lookup. `null` if DNS lookup fails. |
+| `naptrDomain` | string\|null | Computed NAPTR DNS domain (SHA-256 hash of participant value, Base32-encoded). |
+| `docTypes` | array | List of accepted Peppol document types. Each object contains `label` (human-readable name) and `urn` (raw document type identifier). Empty array when `registered` is `false`. |
+
+```json
+{
+  "registered": true,
+  "participantId": "0225:833754302",
+  "entityName": "ARTEMIS CONSEIL",
+  "countryCode": "FR",
+  "additionalInfo": "FR_ASSUJETTI_ACTIVE",
+  "smpUrl": "https://peppol-smp-public.production.qonto-snc.co",
+  "naptrDomain": "FJVAYBOCKQKK5J44236CKQT72SBBRFGHOZQ2YD7FZSINFCQ63RYQ.iso6523-actorid-upis.participant.sml.prod.tech.peppol.org",
+  "docTypes": [
+    { "label": "Peppol BIS Billing UBL Invoice V3", "urn": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1" },
+    { "label": "France UBL Invoice CIUS", "urn": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:peppol:france:billing:cius:1.0::2.1" }
+  ]
+}
+```
+
+```json
+{
+  "registered": false,
+  "docTypes": []
+}
+```
+
+**Error responses:**
+
+| Code | Condition |
+|------|-----------|
+| 400 | Invalid SIREN format (not exactly 9 digits). |
+| 401 | Invalid or missing `x-api-key`. |
 
 ---
 
@@ -2727,7 +3027,8 @@ Manually set SMS verification data for a user without sending a real SMS. Useful
 
 ##### POST `/api/admin/devtools/company/check`
 
-Run a fast KYB pre-check on a SIREN number without creating a KY file. Returns an eligibility verdict based on company data, sanctions/PEP screening, and risk scoring.
+Performs a quick KYB eligibility pre-check on a French SIREN number without creating any record.
+Looks up the company via INPI and Recherche Entreprises, screens all representatives and beneficial owners against sanctions lists (OpenSanctions) and French PEP databases, computes a KYB risk score, and returns structured company data.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2742,24 +3043,93 @@ Content-Type: application/json
 x-api-key: <Domain.apiKey>
 
 {
-  "siren": "123456789"
+  "siren": "443061841"
 }
 ```
 
 **Response (200):**
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `existence` | object | Source availability flags (`exists`, `inpi`, `rechercheEntreprises`) |
+| `companyName` | string \| null | Company legal name |
+| `companyRegistrationNumber` | string \| null | SIREN (9 digits) |
+| `siret` | string \| null | SIRET when available |
+| `companyRegistrationDate` | string \| null | Registration/creation date |
+| `companyType` | string \| null | Mapped legal form |
+| `naf` | string \| null | NAF/APE code |
+| `address` | string \| null | Registered address |
+| `postalCode` | string \| null | Registered postal code |
+| `city` | string \| null | Registered city |
+| `companyInseeCityCode` | string \| null | INSEE city code |
+| `representatives` | array | Company representatives/directors (with `opensanctionsResult` and `ppeResult` screening) |
+| `beneficiairesEffectifs` | array | Beneficial owners when available from INPI (with screening) |
+
 ```json
 {
-  "success": true,
-  "data": {
-    "result": "OK"
-  }
+  "existence": {
+    "exists": true,
+    "inpi": true,
+    "rechercheEntreprises": true
+  },
+  "companyName": "GOOGLE FRANCE",
+  "companyRegistrationNumber": "443061841",
+  "siret": "44306184100047",
+  "companyRegistrationDate": "2002-08-14",
+  "companyType": "Société à responsabilité limitée (sans autre indication)",
+  "naf": "62.02A",
+  "address": "8 RUE DE LONDRES 75009 PARIS 9E ARRONDISSEMENT",
+  "postalCode": "75009",
+  "city": "PARIS 9E ARRONDISSEMENT",
+  "companyInseeCityCode": "75109",
+  "representatives": [
+    {
+      "source": "inpi",
+      "type": "personne physique",
+      "firstName": "PAUL",
+      "lastName": "Manicle",
+      "fullName": "PAUL Manicle",
+      "role": "Gérant",
+      "secondRole": null,
+      "birthDate": "1975-10",
+      "opensanctionsResult": { "count": 0, "results": [] },
+      "ppeResult": { "is_elu": false, "total_mandats": 0, "results": [] }
+    }
+  ],
+  "beneficiairesEffectifs": [
+    {
+      "type": "personne physique",
+      "firstName": "Larry",
+      "lastName": "PAGE",
+      "fullName": "Larry PAGE",
+      "birthDate": "1972-12-12",
+      "nationalityCode": "USA",
+      "birthCountry": "ETATS-UNIS",
+      "birthPlace": "Michigan",
+      "address": {
+        "street": "171 Main Street Apt #282",
+        "postalCode": null,
+        "city": "Los Altos, Californie 94022",
+        "country": "ÉTATS-UNIS"
+      },
+      "detentionCapitalPct": 0,
+      "detentionDroitDeVotePct": 27.2,
+      "opensanctionsResult": { "count": 0, "results": [] },
+      "ppeResult": { "is_elu": false, "total_mandats": 0, "results": [] }
+    }
+  ]
 }
 ```
 
-`result` is `OK` when the computed risk score is below or equal to the auto-approve threshold, `KO` otherwise.
+**Error Responses:**
 
-**Error Responses:** `400` invalid SIREN / company not found / inactive company. `404` outside development deployments.
+| Code | Condition | Example message |
+|------|-----------|-----------------|
+| `400` | Missing or invalid SIREN (not 9 digits) | `"siren must be exactly 9 digits"` |
+| `400` | Company not found for this SIREN | `"Entreprise introuvable pour ce SIREN"` |
+| `400` | Company is inactive (cessée) | `"Entreprise cessée"` |
+| `401` | Invalid or missing API key / admin auth | `"bad key"`, `"Unauthorized"` |
+| `404` | Endpoint called outside development deployments | `"Not Found"` |
 
 ##### POST `/api/admin/devtools/sepa/topup`
 
@@ -2798,7 +3168,6 @@ This endpoint:
     },
     "identity": {
       "externalUserId": "user_ext_abc123",
-      "userId": "user_internal_42",
       "rpId": "passkeys-prat1.ibex.fi"
     },
     "payment": {
@@ -4469,6 +4838,34 @@ Arbitrary **JSON object** per tenant (`rpId`), stored in table **`DomainKeyValue
 - `headers` (optional): additional static HTTP headers.
 - `timeoutMs` (optional): request timeout in milliseconds (bounded server-side).
 
+**Outgoing payload examples:**
+
+`user.ky.updated` (`data` object):
+
+```json
+{
+  "signal": "changed",
+  "status": "5",
+  "firstName": "Jean",
+  "lastName": "Dupont",
+  "externalUserId": "32f5e35d-8696-4201-a219-95edebe0d432"
+}
+```
+
+Notes:
+- `status` is sent as a string.
+- `firstName` / `lastName` are included when provided by upstream KYC updates.
+- `data` is tenant-facing and uses tenant `externalUserId` (no `userId` field in `data`).
+
+`user.iban.updated` (`data` object):
+
+```json
+{
+  "signal": "changed",
+  "externalUserId": "32f5e35d-8696-4201-a219-95edebe0d432"
+}
+```
+
 ---
 
 ## Tenant Endpoints (`/v1.2/domain/*` and tenant read under `/v1.2/domains/*`)
@@ -4486,7 +4883,9 @@ This section groups the domain-tenant endpoints intended for backend/server usag
 | GET | `/v1.2/domain/kv` | **API_KEY** | Read tenant JSON config blob. |
 | PUT | `/v1.2/domain/kv` | **API_KEY** | Replace tenant JSON config blob. |
 | PATCH | `/v1.2/domain/kv` | **API_KEY** | Merge top-level keys in tenant JSON config blob. |
-| GET | `/v1.2/domain/users/:id` | **API_KEY** | Read one tenant user by `externalUserId` (same user payload family as `/v1.2/users/me`). |
+| GET | `/v1.2/domain/users/:id` | **API_KEY** | Read one tenant user by `externalUserId` (includes `ky` status, signers, safes). |
+| GET | `/v1.2/domain/company/check` | **API_KEY** | KYB pre-check on a French SIREN number (eligibility verdict + company data). |
+| GET | `/v1.2/domain/company/check/peppol` | **API_KEY** | Peppol Directory lookup on a French SIREN number (registered, participantId, entityName). |
 | GET | `/v1.2/domain/chainid` | **API_KEY** | Tenant aggregate chain/wallet/module view (same payload shape as `/v1.2/users/me/chainid`). |
 | GET | `/v1.2/domains/:rpId` | **API_KEY** (or JWT admin) | Read tenant domain metadata and counters; API key only for same `rpId`. |
 | GET | `/v1.2/domains/:rpId/quota` | **API_KEY** (or JWT admin) | Read tenant quota stats; API key only for same `rpId`. |
@@ -4584,7 +4983,7 @@ The other **five** routes require **`Authorization: Bearer <access_token>`** (sa
 
 ## Compatibility summary
 
-- **v1.2** — Auth (sign-up, sign-in, email/recover, refresh), recovery, users (including **domain key-value** at `GET`/`PUT`/`PATCH /v1.2/domain/kv` with domain `x-api-key`), safes, operations, and related `api/…` usage documented above.
+- **v1.2** — Auth (sign-up, sign-in, email/recover, refresh), recovery, users (including **domain key-value** at `GET`/`PUT`/`PATCH /v1.2/domain/kv`, **user listing** at `GET /v1.2/domain/users` with KY filter, **user lookup** at `GET /v1.2/domain/users/:id`, **KYB pre-check** at `GET /v1.2/domain/company/check`, and **Peppol lookup** at `GET /v1.2/domain/company/check/peppol` — all with domain `x-api-key`), safes, operations, and related `api/…` usage documented above.
 - **Domains** (`/v1.2/domains/`): one **public** DNS challenge; create/list/update are **JWT** routes (domain admins); detail/quota can be read with **JWT** (admin) or tenant **`x-api-key`** scoped to its own `rpId`. See the **Domains** section above.
 
 Use **X-Blockchain-Id** (or `blockchainId` query) where chain scope is required (operations, recovery, and chain-scoped `api` routes).

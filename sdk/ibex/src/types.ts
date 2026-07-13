@@ -820,6 +820,8 @@ export type IbexSmsSignUpStep1Request = {
   telephone: string;
   phonePolicy?: "frMobile" | "any";
   smsDryRun?: boolean;
+  /** B2B only (requires x-api-key): real end-user IPv4/IPv6 for rate limiting and audit */
+  endUserIp?: string;
 };
 
 /** Step 1 response — contains externalUserId needed for step 2 */
@@ -837,6 +839,8 @@ export type IbexSmsSignUpConfirmRequest = {
   phonePolicy?: "frMobile" | "any";
   email?: string;
   companyRegistrationNumber?: string;
+  /** B2B only (requires x-api-key): real end-user IPv4/IPv6 for rate limiting and audit */
+  endUserIp?: string;
 };
 
 export type IbexSmsSignUpResponse = {
@@ -849,6 +853,7 @@ export type IbexSmsSignUpResponse = {
   wallet: "sms";
   externalUserId: string;
   sessionId?: string;
+  chatbotURL?: string;
   chatbotFullURL?: string;
   code?: string;
 } & JsonObject;
@@ -866,6 +871,8 @@ export type IbexSmsSignInStep1Request = {
   telephone: string;
   phonePolicy?: "frMobile" | "any";
   smsDryRun?: boolean;
+  /** B2B only (requires x-api-key): real end-user IPv4/IPv6 for rate limiting and audit */
+  endUserIp?: string;
 };
 
 export type IbexSmsSignInStep1Response = {
@@ -877,7 +884,22 @@ export type IbexSmsSignInConfirmRequest = {
   telephone: string;
   code: string;
   phonePolicy?: "frMobile" | "any";
+  /** B2B only (requires x-api-key): real end-user IPv4/IPv6 for rate limiting and audit */
+  endUserIp?: string;
 };
+
+export type IbexSmsSignInResponse = IbexTokens & {
+  externalUserId?: string;
+  authMethod?: string;
+  hasPasskey?: boolean;
+  wallet?: string;
+  /** Present when KY is not yet completed (KY=0) */
+  chatbotURL?: string;
+  /** Present when KY is not yet completed (KY=0) */
+  chatbotFullURL?: string;
+  /** Present when KY is not yet completed (KY=0) */
+  sessionId?: string;
+} & JsonObject;
 
 // --- KYC Iframe ---
 
@@ -1381,10 +1403,81 @@ export type IbexDomainCompanyKycEligiblePerson = {
   birthDate?: string | null;
 } & JsonObject;
 
+export type IbexCompanyExistence = {
+  exists: boolean;
+  inpi: boolean;
+  rechercheEntreprises: boolean;
+};
+
+export type IbexOpenSanctionsResult = {
+  count: number;
+  results: JsonObject[];
+} & JsonObject;
+
+export type IbexPpeResult = {
+  is_elu: boolean;
+  total_mandats: number;
+  results: JsonObject[];
+} & JsonObject;
+
+export type IbexCompanyRepresentative = {
+  source?: string;
+  type?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  role?: string;
+  secondRole?: string | null;
+  birthDate?: string | null;
+  opensanctionsResult?: IbexOpenSanctionsResult;
+  ppeResult?: IbexPpeResult;
+} & JsonObject;
+
+export type IbexCompanyBeneficiary = {
+  type?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  birthDate?: string | null;
+  nationalityCode?: string | null;
+  birthCountry?: string | null;
+  birthPlace?: string | null;
+  address?: {
+    street?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    country?: string | null;
+  } & JsonObject;
+  detentionCapitalPct?: number;
+  detentionDroitDeVotePct?: number;
+  opensanctionsResult?: IbexOpenSanctionsResult;
+  ppeResult?: IbexPpeResult;
+} & JsonObject;
+
 export type IbexDevToolsCompanyCheckResponse = {
+  existence?: IbexCompanyExistence;
+  companyName?: string | null;
+  companyRegistrationNumber?: string | null;
+  siret?: string | null;
+  companyRegistrationDate?: string | null;
+  companyType?: string | null;
+  naf?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  companyInseeCityCode?: string | null;
+  representatives?: IbexCompanyRepresentative[];
+  beneficiairesEffectifs?: IbexCompanyBeneficiary[];
+  /** @deprecated Use structured fields instead */
   result?: "OK" | "KO" | string;
+  /** @deprecated Use representatives/beneficiairesEffectifs instead */
   kycEligiblePersons?: IbexDomainCompanyKycEligiblePerson[];
 } & JsonObject;
+
+export type IbexPeppolDocType = {
+  label: string;
+  urn: string;
+};
 
 export type IbexDevToolsCompanyCheckPeppolResponse = {
   registered: boolean;
@@ -1392,6 +1485,50 @@ export type IbexDevToolsCompanyCheckPeppolResponse = {
   entityName?: string | null;
   countryCode?: string | null;
   additionalInfo?: string | null;
+  smpUrl?: string | null;
+  naptrDomain?: string | null;
+  docTypes?: IbexPeppolDocType[];
+} & JsonObject;
+
+// --- Domain Users (Tenant API_KEY endpoints) ---
+
+export type IbexDevToolsDomainUsersQuery = {
+  ky?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type IbexDevToolsDomainUser = {
+  externalUserId: string;
+  ky: string;
+  createdAt: string;
+} & JsonObject;
+
+export type IbexDevToolsDomainUsersResponse = {
+  users: IbexDevToolsDomainUser[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+  };
+} & JsonObject;
+
+export type IbexDevToolsDomainUserSafe = {
+  address: string;
+  blockchainId: number;
+  threshold: number;
+} & JsonObject;
+
+export type IbexDevToolsDomainUserSigner = {
+  id: string;
+  addresses: { type: string; address: string }[];
+  safes: IbexDevToolsDomainUserSafe[];
+} & JsonObject;
+
+export type IbexDevToolsDomainUserDetailResponse = {
+  id: string;
+  ky: string;
+  signers: IbexDevToolsDomainUserSigner[];
 } & JsonObject;
 
 export type IbexDevToolsSepaTopupInput = {

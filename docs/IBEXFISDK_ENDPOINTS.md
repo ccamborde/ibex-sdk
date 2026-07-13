@@ -4,6 +4,13 @@ This document lists the HTTP endpoints currently integrated in the IBEx SDK (`sd
 
 ## Changelog
 
+- **2026-07-12** `create` `devtools.domainUsers(query?)` -> `GET /v1.2/domain/users`: list tenant users with optional KY filter and pagination (API_KEY auth). Added types `IbexDevToolsDomainUsersQuery`, `IbexDevToolsDomainUser`, `IbexDevToolsDomainUsersResponse`.
+- **2026-07-12** `create` `devtools.domainUserById(externalUserId)` -> `GET /v1.2/domain/users/:id`: read a single tenant user with KY status, signers, and safes (API_KEY auth). Added types `IbexDevToolsDomainUserDetailResponse`, `IbexDevToolsDomainUserSigner`, `IbexDevToolsDomainUserSafe`.
+- **2026-07-12** `create` `X-End-User-IP` header support: all SMS auth request types (`IbexSmsSignUpStep1Request`, `IbexSmsSignUpConfirmRequest`, `IbexSmsSignInStep1Request`, `IbexSmsSignInConfirmRequest`) now accept optional `endUserIp` field. When set, the SDK forwards it as `X-End-User-IP` header (B2B only, requires `x-api-key`).
+- **2026-07-12** `modify` `confirmSmsSignIn(request)`: return type changed from `IbexTokens` to `IbexSmsSignInResponse` (tokens + optional KYC fields `chatbotURL`, `chatbotFullURL`, `sessionId` when KY=0). Added type `IbexSmsSignInResponse`.
+- **2026-07-12** `modify` `IbexSmsSignUpResponse`: added `chatbotURL` field (was previously missing).
+- **2026-07-12** `modify` `IbexDevToolsCompanyCheckPeppolResponse`: added `smpUrl`, `naptrDomain`, `docTypes[]` fields. Added type `IbexPeppolDocType`.
+- **2026-07-12** `modify` `IbexDevToolsCompanyCheckResponse`: enriched with full structured response fields (`existence`, `companyName`, `siret`, `companyType`, `naf`, `address`, `representatives[]`, `beneficiairesEffectifs[]` with sanctions/PEP screening). Added types `IbexCompanyExistence`, `IbexCompanyRepresentative`, `IbexCompanyBeneficiary`, `IbexOpenSanctionsResult`, `IbexPpeResult`. Legacy `result` and `kycEligiblePersons` fields preserved as deprecated.
 - **2026-07-07** `modify` `devtools.companyCheck(input)` now targets `GET /v1.2/domain/company/check` (query `siren`) instead of legacy `POST /api/admin/devtools/company/check`; added `devtools.companyCheckPeppol(input)` for `GET /v1.2/domain/company/check/peppol`.
 - **2026-07-02** `modify` SMS sign-up is now a 2-step flow: added `initSmsSignUp()` (GET) and `confirmSmsSignUp()` (POST). `signUpWithSms()` deprecated as dry-run-only convenience wrapper. Added types `IbexSmsSignUpStep1Request`, `IbexSmsSignUpStep1Response`, `IbexSmsSignUpConfirmRequest`.
 - **2026-06-23** `modify` `IbexDevToolsCompanyCheckResponse` type: aligned with structured `POST /api/admin/devtools/company/check` response (`existence`, company identity fields, `representatives`, `beneficiairesEffectifs`, screening details) instead of legacy `OK/KO`.
@@ -60,7 +67,8 @@ The SDK currently integrates:
   - **same normalized output types** as HTTP methods (format parity)
 - **DevTools** (`IbexDevToolsClient` — separate client, API key / Basic auth):
   - KY dossier management (list, read state, force state, KYC enroll, KYB enroll, SMS verified)
-  - Company KYB pre-check (SIREN)
+  - Company KYB pre-check (SIREN) and Peppol Directory lookup
+  - Domain users (list with KY filter, read by externalUserId)
   - Faucet topup (SEPA, crypto)
 
 ### SDK Normalization Pattern
@@ -197,6 +205,8 @@ For authenticated user endpoints, the SDK sends both headers automatically:
 | `morphoSupply(safeAddress, params, options?)` | `POST` | `/v1.2/safes/operations` |
 | `morphoWithdraw(safeAddress, params, options?)` | `POST` | `/v1.2/safes/operations` |
 | `createRealtimeClient(options?)` | WebSocket | `/ws` |
+| `devtools.domainUsers(query?)` | `GET` | `/v1.2/domain/users` |
+| `devtools.domainUserById(externalUserId)` | `GET` | `/v1.2/domain/users/:id` |
 
 ## Detailed Endpoint Usage
 
@@ -448,6 +458,7 @@ SMS sign-up is a **2-step flow** (similar to SMS sign-in):
   - `telephone: string` (required) — E.164 format
   - `phonePolicy?: "frMobile" | "any"`
   - `smsDryRun?: boolean` — if `false`, force real SMS delivery when environment allows it
+  - `endUserIp?: string` — B2B only (requires `x-api-key`): real end-user IP for rate limiting and audit
 - Does NOT persist session (OTP not yet confirmed).
 - Behavior:
   - If `smsDryRun` is omitted, server default applies (dry-run by default outside production/preprod).
@@ -472,23 +483,29 @@ SMS sign-up is a **2-step flow** (similar to SMS sign-in):
 
 - Endpoint: `POST /v1.2/auth/sign-in`
 - Purpose: confirm the OTP code and obtain a JWT session (step 2 of SMS sign-in)
-- Returns: `IbexTokens` (`{ accessToken, refreshToken }`)
+- Returns: `IbexSmsSignInResponse` (tokens + optional KYC redirect fields)
 - Auth: PUBLIC (no JWT), sends rpId headers
 - Request body:
   - `telephone: string` (required) — same phone as step 1
   - `code: string` (required) — 4-8 digit OTP received by SMS
   - `phonePolicy?: "frMobile" | "any"`
+  - `endUserIp?: string` — B2B only (requires `x-api-key`): real end-user IP for rate limiting and audit
 - The SDK automatically adds `wallet: "sms"` to the request body.
 - On success: stores `access_token`, `refresh_token`, and `externalUserId` in session.
+- When the user's KYC is not yet completed (KY=0), the response includes `chatbotURL`, `chatbotFullURL`, and `sessionId` to redirect the user to complete identity verification.
 - Example:
   ```typescript
   // Step 2: confirm OTP
-  const tokens = await sdk.confirmSmsSignIn({
+  const result = await sdk.confirmSmsSignIn({
     telephone: "+33612345678",
     code: "123456",
   });
-  console.log("Signed in, token:", tokens.accessToken);
-  // Session is persisted — SDK is ready for authenticated calls
+  console.log("Signed in, token:", result.accessToken);
+
+  // If KYC is pending, redirect user to complete verification
+  if (result.chatbotFullURL) {
+    window.location.href = result.chatbotFullURL;
+  }
   ```
 - Error responses: `400` invalid/expired code or missing GET step · `404` phone not registered · `429` rate limit exceeded
 
@@ -501,13 +518,18 @@ const sdk = createIbexSdk({ apiBaseUrl: "https://passkeys-testnet.ibex.fi" });
 const step1 = await sdk.signInWithSms({ telephone: "+33612345678" });
 
 // Step 2: user enters code from SMS (or use step1.code in dev mode)
-const tokens = await sdk.confirmSmsSignIn({
+const result = await sdk.confirmSmsSignIn({
   telephone: "+33612345678",
   code: userEnteredCode,
 });
 
-// Authenticated — use SDK normally
-const profile = await sdk.getMe();
+// If KYC is pending, redirect to chatbot
+if (result.chatbotFullURL) {
+  window.location.href = result.chatbotFullURL;
+} else {
+  // Authenticated — use SDK normally
+  const profile = await sdk.getMe();
+}
 ```
 
 #### SMS Auth Types
@@ -519,9 +541,10 @@ const profile = await sdk.getMe();
 | `IbexSmsSignUpConfirmRequest` | Input for `confirmSmsSignUp` (confirm OTP, step 2) |
 | `IbexSmsSignUpResponse` | Full response from SMS sign-up step 2 (tokens + metadata) |
 | `IbexSmsSignUpRequest` | *(deprecated)* Input for legacy `signUpWithSms` wrapper |
-| `IbexSmsSignInStep1Request` | Input for `signInWithSms` (trigger OTP) |
+| `IbexSmsSignInStep1Request` | Input for `signInWithSms` (trigger OTP, optional `endUserIp`) |
 | `IbexSmsSignInStep1Response` | Response from step 1 (wallet confirmation + dev code) |
-| `IbexSmsSignInConfirmRequest` | Input for `confirmSmsSignIn` (confirm OTP) |
+| `IbexSmsSignInConfirmRequest` | Input for `confirmSmsSignIn` (confirm OTP, optional `endUserIp`) |
+| `IbexSmsSignInResponse` | Response from `confirmSmsSignIn` (tokens + optional KYC fields when KY=0) |
 
 ### 2) User Profile
 
@@ -2878,6 +2901,8 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 | `devtools.kySmsVerified(input)` | `POST` | `/api/admin/devtools/ky/sms-verified` | Manually set SMS verification data |
 | `devtools.companyCheck(input)` | `GET` | `/v1.2/domain/company/check` | Tenant-facing KYB pre-check on a SIREN (API key) |
 | `devtools.companyCheckPeppol(input)` | `GET` | `/v1.2/domain/company/check/peppol` | Peppol Directory lookup for a SIREN (API key) |
+| `devtools.domainUsers(query?)` | `GET` | `/v1.2/domain/users` | List tenant users with KY filter and pagination (API key) |
+| `devtools.domainUserById(externalUserId)` | `GET` | `/v1.2/domain/users/:id` | Read one tenant user by externalUserId (API key) |
 | `devtools.sepaTopup(input)` | `POST` | `/api/admin/devtools/sepa/topup` | SEPA faucet topup (dev only) |
 | `devtools.cryptoTopup(input)` | `POST` | `/api/admin/devtools/crypto/topup` | Crypto faucet topup (dev only) |
 
@@ -2898,8 +2923,20 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 | `IbexDevToolsKySmsVerifiedInput` | Input for `kySmsVerified` (externalUserId, smsVerifiedTelephone?, smsVerifiedAt?) |
 | `IbexDevToolsKySmsVerifiedResponse` | SMS verified result (success, kyCustomerId, smsVerifiedTelephone, smsVerifiedAt) |
 | `IbexDevToolsCompanyCheckInput` | Input for `companyCheck` (siren) |
-| `IbexDevToolsCompanyCheckResponse` | Domain company pre-check result (`result`, `kycEligiblePersons[]`) |
-| `IbexDevToolsCompanyCheckPeppolResponse` | Peppol lookup result (`registered`, `participantId`, `entityName`, `countryCode`, `additionalInfo`) |
+| `IbexDevToolsCompanyCheckResponse` | Structured company pre-check result (`existence`, company fields, `representatives[]`, `beneficiairesEffectifs[]` with screening) |
+| `IbexCompanyExistence` | Company existence flags (`exists`, `inpi`, `rechercheEntreprises`) |
+| `IbexCompanyRepresentative` | Company representative with screening (`opensanctionsResult`, `ppeResult`) |
+| `IbexCompanyBeneficiary` | Beneficial owner with screening (`opensanctionsResult`, `ppeResult`) |
+| `IbexOpenSanctionsResult` | OpenSanctions screening result (`count`, `results[]`) |
+| `IbexPpeResult` | French PEP screening result (`is_elu`, `total_mandats`, `results[]`) |
+| `IbexDevToolsCompanyCheckPeppolResponse` | Peppol lookup result (`registered`, `participantId`, `entityName`, `smpUrl`, `naptrDomain`, `docTypes[]`) |
+| `IbexPeppolDocType` | Peppol document type (`label`, `urn`) |
+| `IbexDevToolsDomainUsersQuery` | Query params for `domainUsers` (ky?, page?, limit?) |
+| `IbexDevToolsDomainUser` | User item in domain users list (`externalUserId`, `ky`, `createdAt`) |
+| `IbexDevToolsDomainUsersResponse` | Paginated list of domain users (`users[]`, `pagination`) |
+| `IbexDevToolsDomainUserDetailResponse` | Single domain user detail (`id`, `ky`, `signers[]`) |
+| `IbexDevToolsDomainUserSigner` | Signer detail within domain user (`id`, `addresses[]`, `safes[]`) |
+| `IbexDevToolsDomainUserSafe` | Safe detail within domain user signer (`address`, `blockchainId`, `threshold`) |
 | `IbexDevToolsSepaTopupInput` | Input for `sepaTopup` (targetIban, targetName?, amount?, amountEur?, channel?, remittanceInfo?) |
 | `IbexDevToolsSepaTopupResponse` | Topup result (success, data: { source, identity, payment }) |
 | `IbexDevToolsCryptoTopupInput` | Input for `cryptoTopup` (externalUserId, wallet?) |
@@ -2909,7 +2946,7 @@ const devtools = sdk.createDevToolsClient({ apiKey: "my-domain-api-key" });
 
 The following API families are not wrapped by high-level SDK methods in `sdk/ibex` yet:
 
-- domain/admin/config endpoints (`/v1.2/domains/*`, and `/v1.2/domain/*` except `GET /v1.2/domain/company/check` and `GET /v1.2/domain/company/check/peppol`)
+- domain/admin/config endpoints (`/v1.2/domains/*`, and `/v1.2/domain/*` except `GET /v1.2/domain/users`, `GET /v1.2/domain/users/:id`, `GET /v1.2/domain/company/check`, and `GET /v1.2/domain/company/check/peppol`)
 - safe-provision routes (deploy, lazy-create)
 - batch operations (`batch-intent` / `batch-execute`)
 - automation module config (`PUT /v1.2/safes/{safeAddress}/automation-module/config`)

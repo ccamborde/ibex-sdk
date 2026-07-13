@@ -5,6 +5,9 @@ import type {
   IbexDevToolsConfig,
   IbexDevToolsCryptoTopupInput,
   IbexDevToolsCryptoTopupResponse,
+  IbexDevToolsDomainUserDetailResponse,
+  IbexDevToolsDomainUsersQuery,
+  IbexDevToolsDomainUsersResponse,
   IbexDevToolsKybEnrollInput,
   IbexDevToolsKybEnrollResponse,
   IbexDevToolsKyEnrollInput,
@@ -106,6 +109,20 @@ export class IbexDevToolsClient {
   async companyCheckPeppol(input: IbexDevToolsCompanyCheckInput): Promise<IbexDevToolsCompanyCheckPeppolResponse> {
     const path = this.buildPathWithQuery("/v1.2/domain/company/check/peppol", input as JsonObject);
     return (await this.jsonFetch(path)) as unknown as IbexDevToolsCompanyCheckPeppolResponse;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Domain Users
+  // ---------------------------------------------------------------------------
+
+  async domainUsers(query: IbexDevToolsDomainUsersQuery = {}): Promise<IbexDevToolsDomainUsersResponse> {
+    const path = this.buildPathWithQuery("/v1.2/domain/users", query as JsonObject);
+    return (await this.jsonFetch(path)) as unknown as IbexDevToolsDomainUsersResponse;
+  }
+
+  async domainUserById(externalUserId: string): Promise<IbexDevToolsDomainUserDetailResponse> {
+    const encoded = encodeURIComponent(externalUserId);
+    return (await this.jsonFetch(`/v1.2/domain/users/${encoded}`)) as unknown as IbexDevToolsDomainUserDetailResponse;
   }
 
   // ---------------------------------------------------------------------------

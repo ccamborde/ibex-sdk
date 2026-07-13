@@ -143,6 +143,8 @@ export class IbexSdk {
     async initSmsSignUp(request) {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        if (request.endUserIp)
+            rpHeaders["X-End-User-IP"] = request.endUserIp;
         const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
         if (request.phonePolicy)
             params.set("phonePolicy", request.phonePolicy);
@@ -157,10 +159,13 @@ export class IbexSdk {
     async confirmSmsSignUp(request) {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        if (request.endUserIp)
+            rpHeaders["X-End-User-IP"] = request.endUserIp;
+        const { endUserIp: _, ...body } = request;
         const payload = await this.jsonFetch("/v1.2/auth/sign-up", {
             method: "POST",
             headers: rpHeaders,
-            body: { wallet: "sms", ...request },
+            body: { wallet: "sms", ...body },
         });
         const response = payload;
         const tokens = extractAuthTokens(payload);
@@ -193,6 +198,8 @@ export class IbexSdk {
     async signInWithSms(request) {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        if (request.endUserIp)
+            rpHeaders["X-End-User-IP"] = request.endUserIp;
         const params = new URLSearchParams({ wallet: "sms", telephone: request.telephone });
         if (request.phonePolicy)
             params.set("phonePolicy", request.phonePolicy);
@@ -207,10 +214,13 @@ export class IbexSdk {
     async confirmSmsSignIn(request) {
         const rpId = this.resolveRpId();
         const rpHeaders = { "X-Rp-Id": rpId, "X-RpId": rpId };
+        if (request.endUserIp)
+            rpHeaders["X-End-User-IP"] = request.endUserIp;
+        const { endUserIp: _, ...body } = request;
         const payload = await this.jsonFetch("/v1.2/auth/sign-in", {
             method: "POST",
             headers: rpHeaders,
-            body: { wallet: "sms", ...request },
+            body: { wallet: "sms", ...body },
         });
         const tokens = extractAuthTokens(payload);
         if (!tokens?.accessToken) {
@@ -218,7 +228,16 @@ export class IbexSdk {
         }
         const externalUserId = extractExternalUserId(payload);
         this.setSession(tokens, externalUserId);
-        return tokens;
+        return {
+            ...tokens,
+            externalUserId: externalUserId ?? undefined,
+            authMethod: payload.authMethod,
+            hasPasskey: payload.hasPasskey,
+            wallet: payload.wallet,
+            chatbotURL: payload.chatbotURL,
+            chatbotFullURL: payload.chatbotFullURL,
+            sessionId: payload.sessionId,
+        };
     }
     async refreshSession() {
         const details = await this.refreshSessionDetailed();

@@ -14,7 +14,7 @@ export class IbexDevToolsClient {
         }
         else if (config.basicAuth) {
             const encoded = btoa(`${config.basicAuth.username}:${config.basicAuth.password}`);
-            this.authHeaders = { Authorization: `Basic ${encoded}` };
+            this.authHeaders = { Authorization: `Basic ${encoded}`, ...rpIdHeaders };
         }
         else {
             this.authHeaders = rpIdHeaders;
@@ -59,10 +59,23 @@ export class IbexDevToolsClient {
     // Company
     // ---------------------------------------------------------------------------
     async companyCheck(input) {
-        return (await this.jsonFetch("/api/admin/devtools/company/check", {
-            method: "POST",
-            body: input,
-        }));
+        const path = this.buildPathWithQuery("/v1.2/domain/company/check", input);
+        return (await this.jsonFetch(path));
+    }
+    async companyCheckPeppol(input) {
+        const path = this.buildPathWithQuery("/v1.2/domain/company/check/peppol", input);
+        return (await this.jsonFetch(path));
+    }
+    // ---------------------------------------------------------------------------
+    // Domain Users
+    // ---------------------------------------------------------------------------
+    async domainUsers(query = {}) {
+        const path = this.buildPathWithQuery("/v1.2/domain/users", query);
+        return (await this.jsonFetch(path));
+    }
+    async domainUserById(externalUserId) {
+        const encoded = encodeURIComponent(externalUserId);
+        return (await this.jsonFetch(`/v1.2/domain/users/${encoded}`));
     }
     // ---------------------------------------------------------------------------
     // Faucet
